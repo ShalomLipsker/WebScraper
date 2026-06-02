@@ -1,7 +1,12 @@
-# domain
+# @org/domain
 
-This library was generated with [Nx](https://nx.dev).
+Shared domain contracts for the scraping pipeline.
 
-## Building
+This package contains the core job lifecycle types used across the API,
+job-manager, scraper, and persistence layers. It is intentionally limited to
+portable TypeScript types and interfaces so other packages can depend on it
+without pulling in infrastructure concerns.
 
-Run `nx build domain` to build the library.
+## Build
+
+Run `pnpm nx build domain` to build the library.
