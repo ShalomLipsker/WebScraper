@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Global, Module, type DynamicModule } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   Logger as NestjsPinoLogger,
   LoggerModule as NestjsPinoLoggerModule,
@@ -34,7 +35,7 @@ function getHeaderValue(value: HeaderValue): string | undefined {
 export function createStructuredLoggerOptions(
   options: StructuredLoggerModuleOptions,
 ): Params {
-  const level = options.level ?? process.env.LOG_LEVEL ?? 'info';
+  const level = options.level ?? 'info';
 
   return {
     renameContext: 'context',
@@ -84,7 +85,18 @@ export class StructuredLoggerModule {
     return {
       module: StructuredLoggerModule,
       imports: [
-        NestjsPinoLoggerModule.forRoot(createStructuredLoggerOptions(options)),
+        ConfigModule,
+        NestjsPinoLoggerModule.forRootAsync({
+          imports: [ConfigModule],
+          inject: [ConfigService],
+          useFactory: (configService: ConfigService) =>
+            createStructuredLoggerOptions({
+              ...options,
+              level:
+                options.level ??
+                configService.get<string>('app.logLevel', 'info'),
+            }),
+        }),
       ],
       exports: [NestjsPinoLoggerModule],
     };

@@ -1,9 +1,12 @@
 import { Module } from '@nestjs/common';
 import { StructuredLoggerModule } from '@org/logger';
+import { jobManagerConfigModule } from './app.config';
 
 @Module({
-  imports: [StructuredLoggerModule.register({ serviceName: 'job-manager' })],
-  controllers: [],
+  imports: [
+    jobManagerConfigModule,
+    StructuredLoggerModule.register({ serviceName: 'job-manager' }),
+  ],
   providers: [],
 })
 export class AppModule {}

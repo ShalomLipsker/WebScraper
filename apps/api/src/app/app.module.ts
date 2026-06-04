@@ -1,8 +1,12 @@
 import { Module } from '@nestjs/common';
 import { StructuredLoggerModule } from '@org/logger';
+import { apiConfigModule } from './app.config';
 
 @Module({
-  imports: [StructuredLoggerModule.register({ serviceName: 'api' })],
+  imports: [
+    apiConfigModule,
+    StructuredLoggerModule.register({ serviceName: 'api' }),
+  ],
   controllers: [],
   providers: [],
 })

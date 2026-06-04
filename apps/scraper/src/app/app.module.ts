@@ -1,8 +1,12 @@
 import { Module } from '@nestjs/common';
 import { StructuredLoggerModule } from '@org/logger';
+import { scraperConfigModule } from './app.config';
 
 @Module({
-  imports: [StructuredLoggerModule.register({ serviceName: 'scraper' })],
+  imports: [
+    scraperConfigModule,
+    StructuredLoggerModule.register({ serviceName: 'scraper' }),
+  ],
   controllers: [],
   providers: [],
 })
