@@ -8,4 +8,6 @@ export const REDIS_PERSISTENCE_OPTIONS_TOKEN = Symbol(
 
 export const DEFAULT_REDIS_JOB_KEY_PREFIX = 'jobs:';
 
+export const DEFAULT_REDIS_JOB_RECOVERY_KEY_PREFIX = 'job-recovery:';
+
 export const DEFAULT_REDIS_JOB_TTL_SECONDS = 60 * 60 * 24;

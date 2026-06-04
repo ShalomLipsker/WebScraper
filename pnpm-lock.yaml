@@ -139,6 +139,15 @@ importers:
       '@org/logger':
         specifier: workspace:*
         version: link:../../packages/logger
+      '@org/messaging':
+        specifier: workspace:*
+        version: link:../../packages/messaging
+      '@org/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
+      bullmq:
+        specifier: ^5.78.0
+        version: 5.78.0
       class-transformer:
         specifier: ^0.5.1
         version: 0.5.1

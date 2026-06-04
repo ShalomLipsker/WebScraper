@@ -1,5 +1,6 @@
 export const JOB_STATUSES = [
-  'PENDING',
+  'SUBMITTED',
+  'ENQUEUED',
   'PROCESSING',
   'COMPLETED',
   'FAILED',
@@ -28,6 +29,8 @@ export type JobMetadataPatch = Partial<
 export interface IJobRepository {
   getJob(id: JobId): Promise<JobMetadata | null>;
   createJob(job: CreateJobInput): Promise<JobMetadata>;
+  createJobIfNotExists(job: CreateJobInput): Promise<{ job: JobMetadata; alreadyExisted: boolean }>;
+  tryAcquireRecoveryLease(id: JobId, leaseTtlSeconds: number): Promise<boolean>;
   updateJobStatus(
     id: JobId,
     status: JobStatus,

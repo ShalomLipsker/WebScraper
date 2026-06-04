@@ -23,6 +23,13 @@ export interface QueueMessage<TPayload> {
   name?: string;
 }
 
+export type QueueJobState =
+  | 'queued'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'missing';
+
 export interface PublishedQueueMessage<TPayload>
   extends QueueMessage<TPayload> {
   queueName: string;
@@ -54,6 +61,8 @@ export interface IMessageQueue {
     message: QueueMessage<TPayload>,
     options?: QueuePublishOptions,
   ): Promise<PublishedQueueMessage<TPayload>>;
+
+  getJobState(jobId: string): Promise<QueueJobState>;
 
   registerHandler<TPayload, TResult = void>(
     handler: MessageHandler<TPayload, TResult>,

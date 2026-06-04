@@ -86,6 +86,8 @@
     "@nestjs/platform-express": "^11.0.0",
     "@org/domain": "workspace:*",
     "@org/logger": "workspace:*",
+    "@org/messaging": "workspace:*",
+    "@org/persistence": "workspace:*",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "reflect-metadata": "^0.1.13",

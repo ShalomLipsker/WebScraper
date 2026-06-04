@@ -18,11 +18,24 @@ import type {
   MessageHandler,
   MessageWorkerRegistrationOptions,
   PublishedQueueMessage,
+  QueueJobState,
   QueueHistoryRetention,
   QueueMessage,
   QueuePublishOptions,
   ResolvedBullMqMessagingModuleOptions,
 } from './messaging.types.js';
+
+export type BullMqQueueJobState =
+  | 'active'
+  | 'completed'
+  | 'delayed'
+  | 'failed'
+  | 'paused'
+  | 'prioritized'
+  | 'unknown'
+  | 'waiting'
+  | 'waiting-children';
+
 
 @Injectable()
 export class BullMqMessageQueue implements IMessageQueue, OnModuleDestroy {
@@ -58,6 +71,12 @@ export class BullMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       attempts:
         options.attempts ?? this.options.defaultPublishOptions.attempts,
     };
+  }
+
+  async getJobState(jobId: string): Promise<QueueJobState> {
+    const state = await this.queue.getJobState(jobId) as BullMqQueueJobState;
+
+    return mapBullMqJobState(state);
   }
 
   async registerHandler<TPayload, TResult = void>(
@@ -158,4 +177,23 @@ function toKeepJobs(
   return {
     count: maxCount ?? DEFAULT_JOB_HISTORY_COUNT,
   };
+}
+
+export function mapBullMqJobState(state: BullMqQueueJobState): QueueJobState {
+  switch (state) {
+    case 'active':
+      return 'processing';
+    case 'completed':
+      return 'completed';
+    case 'failed':
+      return 'failed';
+    case 'delayed':
+    case 'paused':
+    case 'prioritized':
+    case 'waiting':
+    case 'waiting-children':
+      return 'queued';
+    case 'unknown':
+      return 'missing';
+  }
 }

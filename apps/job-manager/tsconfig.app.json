@@ -12,6 +12,12 @@
   "exclude": [],
   "references": [
     {
+      "path": "../../packages/persistence/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/messaging/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/logger/tsconfig.lib.json"
     },
     {

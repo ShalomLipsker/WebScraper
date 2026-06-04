@@ -10,6 +10,7 @@ import { type Redis } from 'ioredis';
 
 import {
   DEFAULT_REDIS_JOB_KEY_PREFIX,
+  DEFAULT_REDIS_JOB_RECOVERY_KEY_PREFIX,
   DEFAULT_REDIS_JOB_TTL_SECONDS,
   REDIS_CLIENT_TOKEN,
   REDIS_PERSISTENCE_OPTIONS_TOKEN,
@@ -53,6 +54,56 @@ export class RedisJobRepository implements IJobRepository {
     return metadata;
   }
 
+  async createJobIfNotExists(job: CreateJobInput): Promise<{ job: JobMetadata; alreadyExisted: boolean }> {
+    const now = new Date();
+    const metadata: JobMetadata = {
+      ...job,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const key = this.getKey(job.id);
+    const payload = serializeJob(metadata);
+    const ttlSeconds = this.options.ttlSeconds ?? DEFAULT_REDIS_JOB_TTL_SECONDS;
+
+    const result = ttlSeconds > 0
+      ? await this.redis.set(key, payload, 'EX', ttlSeconds, 'NX')
+      : await this.redis.set(key, payload, 'NX');
+
+    if (result === 'OK') {
+      return { job: metadata, alreadyExisted: false };
+    }
+
+    const existingRecord = await this.redis.get(key);
+
+    if (!existingRecord) {
+      // This case means that the key was set by another process after our SET NX command, but before we could read it.
+      // In this case we can just treat it as if the job already existed.
+      return { job: metadata, alreadyExisted: true };
+    }
+
+    return { job: deserializeJob(existingRecord), alreadyExisted: true };
+  }
+
+  async tryAcquireRecoveryLease(
+    id: string,
+    leaseTtlSeconds: number,
+  ): Promise<boolean> {
+    if (leaseTtlSeconds <= 0) {
+      return false;
+    }
+
+    const result = await this.redis.set(
+      this.getRecoveryKey(id),
+      new Date().toISOString(),
+      'EX',
+      leaseTtlSeconds,
+      'NX',
+    );
+
+    return result === 'OK';
+  }
+
   async updateJobStatus(
     id: string,
     status: JobStatus,
@@ -80,6 +131,10 @@ export class RedisJobRepository implements IJobRepository {
 
   private getKey(id: string): string {
     return `${this.options.keyPrefix ?? DEFAULT_REDIS_JOB_KEY_PREFIX}${id}`;
+  }
+
+  private getRecoveryKey(id: string): string {
+    return `${DEFAULT_REDIS_JOB_RECOVERY_KEY_PREFIX}${id}`;
   }
 
   private async writeJob(job: JobMetadata): Promise<void> {
