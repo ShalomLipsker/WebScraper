@@ -6,6 +6,7 @@ import {
   MESSAGE_QUEUE_TOKEN,
 } from '@org/messaging';
 import { SCRAPE_JOB_PATTERN, type SubmitScrapeJobPayload } from '@org/domain';
+import { ScrapeEngineService } from './scrape-engine.service';
 
 @Injectable()
 export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -15,6 +16,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
     @Inject(MESSAGE_QUEUE_TOKEN)
     private readonly messageQueue: IMessageQueue,
     private readonly logger: PinoLoggerService,
+    private readonly scrapeEngineService: ScrapeEngineService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -24,8 +26,10 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
           return;
         }
 
+        const html = await this.scrapeEngineService.fetchHtml(message.data.url);
+
         this.logger.log(
-          `received scrape job ${message.id} (${message.name}) for ${message.data.url} on attempt ${message.attemptsMade}`,
+          `fetched ${html.length} characters for scrape job ${message.id} (${message.name}) from ${message.data.url} on attempt ${message.attemptsMade}`,
         );
       },
     );
