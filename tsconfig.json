@@ -23,6 +23,9 @@
     },
     {
       "path": "./packages/messaging"
+    },
+    {
+      "path": "./packages/storage"
     }
   ]
 }
