@@ -1,12 +1,17 @@
-import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { PinoLoggerService } from '@org/logger';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const logger = app.get(PinoLoggerService);
+
+  app.useLogger(logger);
+  app.flushLogs();
+
   const port = process.env.PORT || 3001;
   await app.listen(port);
-  Logger.log(`job-manager listening on http://localhost:${port}`);
+  logger.log(`job-manager listening on http://localhost:${port}`);
 }
 
 bootstrap();
