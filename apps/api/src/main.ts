@@ -1,3 +1,4 @@
+import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { PinoLoggerService } from '@org/logger';
@@ -10,6 +11,13 @@ async function bootstrap() {
   const logger = app.get(PinoLoggerService);
 
   app.useLogger(logger);
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  );
   app.flushLogs();
 
   await app.listen(config.http.port);
