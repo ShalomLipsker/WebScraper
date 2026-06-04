@@ -1,10 +1,34 @@
 import type { S3ClientConfig } from '@aws-sdk/client-s3';
+import type { Readable } from 'node:stream';
 
 export interface StoredObjectReference {
   bucket: string;
   key: string;
   eTag?: string;
   versionId?: string;
+}
+
+export interface StorageObjectLocation {
+  bucket?: string;
+  key: string;
+}
+
+export interface RetrievedStorageObject extends StoredObjectReference {
+  body: Readable;
+  contentType?: string;
+  contentLength?: number;
+  lastModified?: Date;
+}
+
+export interface PresignStorageObjectInput extends StorageObjectLocation {
+  expiresInSeconds?: number;
+  responseContentType?: string;
+  responseContentDisposition?: string;
+}
+
+export interface PresignedStorageObjectUrl extends StoredObjectReference {
+  url: string;
+  expiresAt: string;
 }
 
 export interface StorageObjectRequestBase {

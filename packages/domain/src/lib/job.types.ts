@@ -14,7 +14,7 @@ export interface JobMetadata {
   id: JobId;
   url: string;
   status: JobStatus;
-  minioPath?: string;
+  resultPath?: string;
   errorMessage?: string;
   createdAt: Date;
   updatedAt: Date;

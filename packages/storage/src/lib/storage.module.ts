@@ -1,4 +1,9 @@
-import { Module, type DynamicModule } from '@nestjs/common';
+import { Module, type DynamicModule, type Type } from '@nestjs/common';
+import type {
+  FactoryProvider,
+  InjectionToken,
+  OptionalFactoryDependency,
+} from '@nestjs/common';
 import { S3Client } from '@aws-sdk/client-s3';
 
 import {
@@ -15,25 +20,40 @@ import type {
 
 @Module({})
 export class StorageModule {
-  static register(options: S3StorageModuleOptions): DynamicModule {
-    const resolvedOptions = resolveS3StorageModuleOptions(options);
+  static registerAsync(options: StorageModuleAsyncOptions): DynamicModule {
+    const optionsProvider: FactoryProvider<ResolvedS3StorageModuleOptions> = {
+      provide: S3_STORAGE_OPTIONS_TOKEN,
+      useFactory: async (...args: unknown[]) => resolveS3StorageModuleOptions(
+        await options.useFactory(...args),
+      ),
+      inject: options.inject ?? [],
+    };
 
     return {
       module: StorageModule,
+      imports: options.imports,
       providers: [
-        {
-          provide: S3_STORAGE_OPTIONS_TOKEN,
-          useValue: resolvedOptions,
-        },
+        optionsProvider,
         {
           provide: S3_STORAGE_CLIENT_TOKEN,
-          useFactory: () => new S3Client(createS3ClientConfig(resolvedOptions)),
+          useFactory: (resolvedOptions: ResolvedS3StorageModuleOptions) => new S3Client(
+            createS3ClientConfig(resolvedOptions),
+          ),
+          inject: [S3_STORAGE_OPTIONS_TOKEN],
         },
         S3StorageService,
       ],
       exports: [S3_STORAGE_CLIENT_TOKEN, S3_STORAGE_OPTIONS_TOKEN, S3StorageService],
     };
   }
+}
+
+export interface StorageModuleAsyncOptions {
+  imports?: Array<Type<unknown> | DynamicModule | Promise<DynamicModule>>;
+  inject?: Array<InjectionToken | OptionalFactoryDependency>;
+  useFactory: (...args: unknown[]) =>
+    | S3StorageModuleOptions
+    | Promise<S3StorageModuleOptions>;
 }
 
 export function resolveS3StorageModuleOptions(

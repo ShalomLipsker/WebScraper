@@ -24,7 +24,7 @@ export interface ScrapeJobStatusView {
   status: JobStatus;
   createdAt: string;
   updatedAt: string;
-  minioPath?: string;
+  resultPath?: string;
   errorMessage?: string;
 }
 

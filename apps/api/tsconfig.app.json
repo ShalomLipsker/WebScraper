@@ -16,6 +16,9 @@
     },
     {
       "path": "../../packages/domain/tsconfig.lib.json"
+    },
+    {
+      "path": "../../packages/storage/tsconfig.lib.json"
     }
   ]
 }

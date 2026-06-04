@@ -152,7 +152,7 @@ function createStatusView(job: {
   status: JobStatus;
   createdAt: Date;
   updatedAt: Date;
-  minioPath?: string;
+  resultPath?: string;
   errorMessage?: string;
 }): ScrapeJobStatusView {
   return {
@@ -161,7 +161,7 @@ function createStatusView(job: {
     status: job.status,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
-    minioPath: job.minioPath,
+    resultPath: job.resultPath,
     errorMessage: job.errorMessage,
   };
 }
