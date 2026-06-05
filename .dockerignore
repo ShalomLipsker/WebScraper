@@ -1,0 +1,9 @@
+node_modules
+.git
+.nx
+dist
+tmp
+coverage
+*.log
+apps/*/dist
+packages/*/dist
