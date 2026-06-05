@@ -4,34 +4,39 @@ import {
   BullMqMessageQueue,
   MessagingModule,
   resolveBullMqMessagingOptions,
+  resolveRedisConnection,
 } from '@org/messaging';
 import { PersistenceModule } from '@org/persistence';
 import { StructuredLoggerModule } from '@org/logger';
 import {
   jobManagerConfigModule,
   jobManagerMessagingConfig,
+  jobManagerRedisConfig,
 } from './app.config';
 import { ScrapeJobsController } from './scrape-jobs.controller';
+import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
 import { ScrapeJobStatusUpdatesService } from './scrape-job-status-updates.service';
 import { ScrapeJobsService } from './scrape-jobs.service';
-
-export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
 
 @Module({
   imports: [
     jobManagerConfigModule,
-    PersistenceModule.register(),
+    PersistenceModule.register({
+      url: process.env.REDIS_URL || undefined,
+    }),
     MessagingModule.registerAsync({
       imports: [jobManagerConfigModule],
-      inject: [jobManagerMessagingConfig.KEY],
+      inject: [jobManagerMessagingConfig.KEY, jobManagerRedisConfig.KEY],
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig] = args as [
+        const [messagingConfig, redisConfig] = args as [
           ConfigType<typeof jobManagerMessagingConfig>,
+          ConfigType<typeof jobManagerRedisConfig>,
         ];
 
         return {
           queueName: messagingConfig.jobQueueName,
           defaultJobName: messagingConfig.jobPattern,
+          connection: resolveRedisConnection(redisConfig.url),
         };
       },
     }),
@@ -42,21 +47,23 @@ export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
     {
       provide: SCRAPE_STATUS_QUEUE_TOKEN,
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig] = args as [
+        const [messagingConfig, redisConfig] = args as [
           ConfigType<typeof jobManagerMessagingConfig>,
+          ConfigType<typeof jobManagerRedisConfig>,
         ];
 
         return new BullMqMessageQueue(
           resolveBullMqMessagingOptions({
             queueName: messagingConfig.statusQueueName,
             defaultJobName: messagingConfig.statusPattern,
+            connection: resolveRedisConnection(redisConfig.url),
           }),
         );
       },
-      inject: [jobManagerMessagingConfig.KEY],
+      inject: [jobManagerMessagingConfig.KEY, jobManagerRedisConfig.KEY],
     },
     ScrapeJobsService,
     ScrapeJobStatusUpdatesService,
   ],
 })
-export class AppModule {}
+export class AppModule { }

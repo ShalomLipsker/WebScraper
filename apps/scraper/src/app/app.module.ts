@@ -4,33 +4,36 @@ import {
   BullMqMessageQueue,
   MessagingModule,
   resolveBullMqMessagingOptions,
+  resolveRedisConnection,
 } from '@org/messaging';
 import { StructuredLoggerModule } from '@org/logger';
 import { StorageModule } from '@org/storage';
 import {
   scraperMessagingConfig,
   scraperConfigModule,
+  scraperRedisConfig,
   scraperStorageConfig,
 } from './app.config';
+import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
 import { ScrapeEngineService } from './scrape-engine.service';
 import { ScrapeWorkerService } from './scrape-worker.service';
-
-export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
 
 @Module({
   imports: [
     scraperConfigModule,
     MessagingModule.registerAsync({
       imports: [scraperConfigModule],
-      inject: [scraperMessagingConfig.KEY],
+      inject: [scraperMessagingConfig.KEY, scraperRedisConfig.KEY],
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig] = args as [
+        const [messagingConfig, redisConfig] = args as [
           ConfigType<typeof scraperMessagingConfig>,
+          ConfigType<typeof scraperRedisConfig>,
         ];
 
         return {
           queueName: messagingConfig.jobQueueName,
           defaultJobName: messagingConfig.jobPattern,
+          connection: resolveRedisConnection(redisConfig.url),
         };
       },
     }),
@@ -49,9 +52,9 @@ export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
           credentials:
             storageConfig.accessKeyId && storageConfig.secretAccessKey
               ? {
-                  accessKeyId: storageConfig.accessKeyId,
-                  secretAccessKey: storageConfig.secretAccessKey,
-                }
+                accessKeyId: storageConfig.accessKeyId,
+                secretAccessKey: storageConfig.secretAccessKey,
+              }
               : undefined,
           defaultBucket: storageConfig.defaultBucket,
         };
@@ -64,21 +67,24 @@ export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
     {
       provide: SCRAPE_STATUS_QUEUE_TOKEN,
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig] = args as [
+        const [messagingConfig, redisConfig] = args as [
           ConfigType<typeof scraperMessagingConfig>,
+          ConfigType<typeof scraperRedisConfig>,
         ];
 
         return new BullMqMessageQueue(
           resolveBullMqMessagingOptions({
             queueName: messagingConfig.statusQueueName,
             defaultJobName: messagingConfig.statusPattern,
+            connection: resolveRedisConnection(redisConfig.url),
           }),
         );
       },
-      inject: [scraperMessagingConfig.KEY],
+      inject: [scraperMessagingConfig.KEY, scraperRedisConfig.KEY],
     },
     ScrapeEngineService,
     ScrapeWorkerService,
   ],
 })
-export class AppModule {}
+export class AppModule { }
+

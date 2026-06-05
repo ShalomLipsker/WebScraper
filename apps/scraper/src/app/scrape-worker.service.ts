@@ -12,8 +12,8 @@ import {
   type SubmitScrapeJobPayload,
 } from '@org/domain';
 import { scraperMessagingConfig } from './app.config';
+import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
 import { ScrapeEngineService } from './scrape-engine.service';
-import { SCRAPE_STATUS_QUEUE_TOKEN } from './app.module';
 
 @Injectable()
 export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {

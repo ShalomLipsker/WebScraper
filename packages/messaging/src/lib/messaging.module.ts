@@ -72,6 +72,24 @@ export class MessagingModule {
   }
 }
 
+export function resolveRedisConnection(redisUrl?: string) {
+  if (!redisUrl) {
+    return {};
+  }
+
+  const parsedUrl = new URL(redisUrl);
+  const db = parsedUrl.pathname.length > 1 ? Number(parsedUrl.pathname.slice(1)) : undefined;
+
+  return {
+    host: parsedUrl.hostname,
+    port: parsedUrl.port ? Number(parsedUrl.port) : 6379,
+    username: parsedUrl.username || undefined,
+    password: parsedUrl.password || undefined,
+    db: Number.isNaN(db) ? undefined : db,
+    tls: parsedUrl.protocol === 'rediss:' ? {} : undefined,
+  };
+}
+
 export function resolveBullMqMessagingOptions(
   options: BullMqMessagingModuleOptions,
 ): ResolvedBullMqMessagingModuleOptions {
@@ -117,18 +135,35 @@ function resolvePublishRetention(
 function resolveWorkerOptions(
   options: BullMqMessagingModuleOptions['worker'],
 ): ResolvedBullMqMessagingModuleOptions['worker'] {
-  return {
+  const resolvedOptions: ResolvedBullMqMessagingModuleOptions['worker'] = {
     autorun: options?.autorun ?? true,
     concurrency: options?.concurrency ?? DEFAULT_WORKER_CONCURRENCY,
-    drainDelay: options?.drainDelay,
-    lockDuration: options?.lockDuration,
-    maxStalledCount: options?.maxStalledCount,
+    maxStalledCount: options?.maxStalledCount ?? 1,
     removeOnComplete: resolveWorkerRetention(options?.removeOnComplete),
     removeOnFail: resolveWorkerRetention(options?.removeOnFail),
-    skipLockRenewal: options?.skipLockRenewal,
-    skipStalledCheck: options?.skipStalledCheck,
-    stalledInterval: options?.stalledInterval,
   };
+
+  assignWorkerOptionIfDefined(resolvedOptions, options, 'drainDelay');
+  assignWorkerOptionIfDefined(resolvedOptions, options, 'lockDuration');
+  assignWorkerOptionIfDefined(resolvedOptions, options, 'skipLockRenewal');
+  assignWorkerOptionIfDefined(resolvedOptions, options, 'skipStalledCheck');
+  assignWorkerOptionIfDefined(resolvedOptions, options, 'stalledInterval');
+
+  return resolvedOptions;
+}
+
+function assignWorkerOptionIfDefined<
+  TKey extends keyof ResolvedBullMqMessagingModuleOptions['worker'],
+>(
+  target: ResolvedBullMqMessagingModuleOptions['worker'],
+  source: BullMqMessagingModuleOptions['worker'],
+  key: TKey,
+): void {
+  const value = source?.[key];
+
+  if (value !== undefined) {
+    target[key] = value;
+  }
 }
 
 function resolveWorkerRetention(

@@ -5,7 +5,7 @@ import { PinoLoggerService } from '@org/logger';
 import type { IMessageQueue, IMessageWorker } from '@org/messaging';
 import { JOB_REPOSITORY_TOKEN } from '@org/persistence';
 import { jobManagerMessagingConfig } from './app.config';
-import { SCRAPE_STATUS_QUEUE_TOKEN } from './app.module';
+import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
 
 @Injectable()
 export class ScrapeJobStatusUpdatesService

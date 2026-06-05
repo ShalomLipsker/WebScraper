@@ -42,6 +42,10 @@ export interface ScraperFetchConfig {
   userAgents: string[];
 }
 
+export interface ScraperRedisConfig {
+  url?: string;
+}
+
 class EnvironmentVariables {
   @IsEnum(['development', 'production', 'test'])
   @IsOptional()
@@ -153,6 +157,11 @@ class EnvironmentVariables {
   @IsOptional()
   @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
   SCRAPER_USER_AGENTS: string = DEFAULT_SCRAPER_USER_AGENTS.join(',');
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  REDIS_URL?: string;
 }
 
 function validateEnvironmentVariables(
@@ -186,6 +195,7 @@ function validateEnvironmentVariables(
     SCRAPER_MIN_REQUEST_INTERVAL_MS: String(validatedConfig.SCRAPER_MIN_REQUEST_INTERVAL_MS),
     SCRAPER_BASE_RETRY_DELAY_MS: String(validatedConfig.SCRAPER_BASE_RETRY_DELAY_MS),
     SCRAPER_USER_AGENTS: validatedConfig.SCRAPER_USER_AGENTS,
+    REDIS_URL: validatedConfig.REDIS_URL,
   };
 }
 
@@ -226,6 +236,12 @@ function readFetchConfig(): ScraperFetchConfig {
   };
 }
 
+function readRedisConfig(): ScraperRedisConfig {
+  return {
+    url: process.env.REDIS_URL || undefined,
+  };
+}
+
 export const scraperServiceConfig = registerAs(
   `${APP_CONFIG_NAMESPACE}.service`,
   (): ScraperServiceConfig => readServiceConfig(),
@@ -244,6 +260,11 @@ export const scraperMessagingConfig = registerAs(
 export const scraperFetchConfig = registerAs(
   `${APP_CONFIG_NAMESPACE}.fetch`,
   (): ScraperFetchConfig => readFetchConfig(),
+);
+
+export const scraperRedisConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.redis`,
+  (): ScraperRedisConfig => readRedisConfig(),
 );
 
 export const scraperMessagingBindings = readMessagingConfig();
@@ -278,5 +299,6 @@ export const scraperConfigModule: Promise<DynamicModule> = ConfigModule.forRoot(
     scraperStorageConfig,
     scraperMessagingConfig,
     scraperFetchConfig,
+    scraperRedisConfig,
   ],
 });

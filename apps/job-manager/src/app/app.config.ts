@@ -28,6 +28,10 @@ export interface JobManagerRecoveryConfig {
   submittedLeaseSeconds: number;
 }
 
+export interface JobManagerRedisConfig {
+  url?: string;
+}
+
 class EnvironmentVariables {
   @IsEnum(['development', 'production', 'test'])
   @IsOptional()
@@ -88,6 +92,11 @@ class EnvironmentVariables {
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))
   SUBMITTED_RECOVERY_LEASE_SECONDS: number = 30;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  REDIS_URL?: string;
 }
 
 function validateEnvironmentVariables(
@@ -113,6 +122,7 @@ function validateEnvironmentVariables(
     SCRAPE_JOB_STATUS_PATTERN: validatedConfig.SCRAPE_JOB_STATUS_PATTERN,
     SUBMITTED_RECOVERY_DELAY_MS: String(validatedConfig.SUBMITTED_RECOVERY_DELAY_MS),
     SUBMITTED_RECOVERY_LEASE_SECONDS: String(validatedConfig.SUBMITTED_RECOVERY_LEASE_SECONDS),
+    REDIS_URL: validatedConfig.REDIS_URL,
   };
 }
 
@@ -145,6 +155,12 @@ function readRecoveryConfig(): JobManagerRecoveryConfig {
   };
 }
 
+function readRedisConfig(): JobManagerRedisConfig {
+  return {
+    url: process.env.REDIS_URL || undefined,
+  };
+}
+
 export const jobManagerServiceConfig = registerAs(
   `${APP_CONFIG_NAMESPACE}.service`,
   (): JobManagerServiceConfig => readServiceConfig(),
@@ -165,6 +181,11 @@ export const jobManagerRecoveryConfig = registerAs(
   (): JobManagerRecoveryConfig => readRecoveryConfig(),
 );
 
+export const jobManagerRedisConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.redis`,
+  (): JobManagerRedisConfig => readRedisConfig(),
+);
+
 export const jobManagerMessagingBindings = readMessagingConfig();
 
 export const jobManagerConfigModule: Promise<DynamicModule> = ConfigModule.forRoot({
@@ -176,5 +197,6 @@ export const jobManagerConfigModule: Promise<DynamicModule> = ConfigModule.forRo
     jobManagerTransportConfig,
     jobManagerMessagingConfig,
     jobManagerRecoveryConfig,
+    jobManagerRedisConfig,
   ],
 });
