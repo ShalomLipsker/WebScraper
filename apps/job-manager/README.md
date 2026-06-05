@@ -1,14 +1,15 @@
 # Job Manager
 
-The `job-manager` app owns scrape job orchestration. It receives internal submit and status messages, hashes URLs into deterministic job IDs, persists job state, publishes BullMQ work items, and reconciles stale jobs when status is queried.
+The `job-manager` app owns scrape job orchestration. It receives internal submit and status messages, hashes URLs into deterministic job IDs, persists job state in PostgreSQL, publishes work through a transactional outbox to RabbitMQ, and reconciles stale or expired jobs.
 
 ## Responsibilities
 
 - Deduplicate jobs by SHA-256 hash of the URL
 - Persist lifecycle state in the job repository
-- Publish scrape work to the main queue
+- Publish scrape work through the outbox dispatcher
 - Consume worker status updates from the status queue
 - Recover stale `SUBMITTED`, `ENQUEUED`, and `PROCESSING` jobs
+- Delete expired jobs and associated storage assets with distributed-safe leases
 
 ## Run
 
@@ -23,7 +24,8 @@ Default local ports:
 
 ## Dependencies
 
-- Redis for persistence and BullMQ transport
+- PostgreSQL for persistence, outbox records, and recovery leases
+- RabbitMQ for work and status transport
 - Internal callers such as `api` using Nest TCP messaging
 
 ## Related files

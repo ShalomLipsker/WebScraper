@@ -1,6 +1,6 @@
 # WebScraper
 
-WebScraper is an Nx monorepo for an asynchronous HTML scraping pipeline built with NestJS. A public API accepts scrape requests, a job-manager service deduplicates and orchestrates them through BullMQ and Redis, and a scraper worker fetches HTML and stores results in MinIO-compatible object storage.
+WebScraper is an Nx monorepo for an asynchronous HTML scraping pipeline built with NestJS. A public API accepts scrape requests, a job-manager service deduplicates and persists them in PostgreSQL, publishes work through a transactional outbox to RabbitMQ, and a scraper worker fetches HTML and stores results in MinIO-compatible object storage.
 
 ## Overview
 
@@ -15,7 +15,7 @@ WebScraper is an Nx monorepo for an asynchronous HTML scraping pipeline built wi
 Client
 	-> api (HTTP)
 	-> job-manager (Nest TCP transport)
-	-> Redis + BullMQ
+	-> PostgreSQL + RabbitMQ
 	-> scraper worker
 	-> MinIO / S3-compatible storage
 	-> api returns status, streamed HTML, or presigned URL
@@ -26,18 +26,20 @@ Client
 | Service | Port | Responsibility |
 | --- | --- | --- |
 | `api` | `3000` | Accepts scrape requests and serves job status and results |
-| `job-manager` | `3001` HTTP, `4001` TCP | Deduplicates jobs, persists lifecycle state, publishes queue messages, reconciles stale jobs |
+| `job-manager` | `3001` HTTP, `4001` TCP | Deduplicates jobs, persists lifecycle state, dispatches outbox messages, and reconciles stale or expired jobs |
 | `scraper` | `3002` | Runs the worker that fetches HTML and publishes status updates |
-| `redis` | `6379` | Queue backend and job persistence backing store |
+| `postgres` | `5432` | Job persistence, transactional outbox, and recovery leases |
+| `rabbitmq` | `5672` AMQP, `15672` management | Work queue transport for scrape jobs and status updates |
 | `minio` | `9000` API, `9001` console | Stores scraped HTML objects |
 
 ## Scrape flow
 
 1. `POST /scrape` submits a URL.
 2. `job-manager` normalizes the URL, hashes it with SHA-256, and creates or reuses the job record.
-3. A new job is published to the scrape queue and moved from `SUBMITTED` to `ENQUEUED`.
-4. `scraper` marks the job `PROCESSING`, fetches the HTML, uploads it to storage, and emits `COMPLETED` or `FAILED`.
-5. `api` exposes the lifecycle state through polling and can return either the HTML stream or a presigned storage URL.
+3. A new job and an outbox message are created in one PostgreSQL transaction.
+4. `job-manager` dispatches pending outbox messages to RabbitMQ and moves the job from `SUBMITTED` to `ENQUEUED`.
+5. `scraper` marks the job `PROCESSING`, fetches the HTML, uploads it to storage, and emits `COMPLETED` or `FAILED`.
+6. `api` exposes the lifecycle state through polling and can return either the HTML stream or a presigned storage URL.
 
 The shared job lifecycle is:
 
@@ -110,7 +112,7 @@ Returns a JSON payload with a short-lived presigned URL for the stored HTML obje
 
 - Node.js 20+
 - `pnpm`
-- Docker and Docker Compose for Redis and MinIO, or for running the full stack in containers
+- Docker and Docker Compose for PostgreSQL, RabbitMQ, and MinIO, or for running the full stack in containers
 
 ### Install dependencies
 
@@ -124,7 +126,7 @@ pnpm install
 docker compose up --build
 ```
 
-This starts Redis, MinIO, and the three apps with the default ports shown above. MinIO is initialized with a `scrape-results` bucket.
+This starts PostgreSQL, RabbitMQ, MinIO, and the three apps with the default ports shown above. MinIO is initialized with a `scrape-results` bucket.
 
 Default local MinIO credentials:
 
@@ -137,7 +139,7 @@ Default local MinIO credentials:
 Start infrastructure first if you are not using the full Compose stack:
 
 ```bash
-docker compose up redis minio minio-init
+docker compose up postgres rabbitmq minio minio-init
 ```
 
 Then start each app in a separate terminal:
@@ -196,10 +198,14 @@ packages/
 
 ## Notes
 
-- `job-manager` performs lazy reconciliation for stale `SUBMITTED`, `ENQUEUED`, and `PROCESSING` jobs.
+- `job-manager` uses a transactional outbox for initial job publication and performs lease-based cleanup for expired jobs.
 - Deduplication is based on the SHA-256 hash of the submitted URL.
 - The scraper currently fetches HTML over HTTP with Axios and retry/backoff logic.
 - Result objects are stored under the `scrape-results/` key prefix in the configured bucket.
+
+### Known issues
+
+- Job status updates can be lost permanently if the job-manager crashes after consuming the status update message more than max retry attempts. 
 
 ## App readmes
 

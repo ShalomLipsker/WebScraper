@@ -13,6 +13,8 @@ export interface StorageObjectLocation {
   key: string;
 }
 
+export interface DeleteStorageObjectInput extends StorageObjectLocation {}
+
 export interface RetrievedStorageObject extends StoredObjectReference {
   body: Readable;
   contentType?: string;

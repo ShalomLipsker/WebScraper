@@ -19,7 +19,7 @@ Default local port: `3002`
 
 ## Dependencies
 
-- Redis and BullMQ for job consumption
+- RabbitMQ for job consumption and status publication
 - S3-compatible storage for result uploads
 
 ## Related files

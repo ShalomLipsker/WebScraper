@@ -1,0 +1,11 @@
+FROM rabbitmq:3.13-management-alpine
+
+ARG RABBITMQ_MESSAGE_DEDUPLICATION_VERSION=0.7.3
+ARG RABBITMQ_MESSAGE_DEDUPLICATION_ASSET=plugins-rmqv3.13.x-erl26.2-elx1.16.zip
+
+RUN apk add --no-cache unzip wget \
+  && wget -O /tmp/rabbitmq-message-deduplication.zip \
+    "https://github.com/noxdafox/rabbitmq-message-deduplication/releases/download/${RABBITMQ_MESSAGE_DEDUPLICATION_VERSION}/${RABBITMQ_MESSAGE_DEDUPLICATION_ASSET}" \
+  && unzip -jo /tmp/rabbitmq-message-deduplication.zip '*.ez' -d /opt/rabbitmq/plugins \
+  && rabbitmq-plugins enable --offline rabbitmq_message_deduplication \
+  && rm -f /tmp/rabbitmq-message-deduplication.zip
