@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type {
   GetScrapeJobPayload,
   GetScrapeJobResult,
@@ -9,6 +9,10 @@ import type {
   ScrapeJobStatusView,
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
+} from '@org/domain';
+import {
+  InvalidScrapeUrlError,
+  normalizeAndValidateScrapeUrl,
 } from '@org/domain';
 import type { IJobSubmissionStore } from '@org/persistence';
 import {
@@ -32,7 +36,7 @@ export class ScrapeJobsService {
   async submitJob(
     payload: SubmitScrapeJobPayload,
   ): Promise<SubmitScrapeJobAcknowledgement> {
-    const url = payload.url.trim();
+    const url = this.normalizeSubmittedUrl(payload.url);
     const jobId = hashUrl(url);
     const status: JobStatus = 'SUBMITTED';
 
@@ -69,6 +73,18 @@ export class ScrapeJobsService {
     }
 
     return createStatusView(job);
+  }
+
+  private normalizeSubmittedUrl(url: unknown): string {
+    try {
+      return normalizeAndValidateScrapeUrl(url);
+    } catch (error: unknown) {
+      if (error instanceof InvalidScrapeUrlError) {
+        throw new BadRequestException(error.message);
+      }
+
+      throw error;
+    }
   }
 }
 
