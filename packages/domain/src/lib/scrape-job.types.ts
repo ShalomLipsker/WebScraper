@@ -6,9 +6,11 @@ export const DEFAULT_SCRAPE_STATUS_QUEUE_NAME = 'scrape-status-queue';
 export const DEFAULT_SCRAPE_JOB_PATTERN = 'scrape.submit';
 export const DEFAULT_SCRAPE_JOB_STATUS_PATTERN = 'scrape.status';
 export const DEFAULT_MAX_SCRAPE_URL_LENGTH = 2048;
+export const DEFAULT_MAX_SCRAPE_PROXY_LENGTH = 2048;
 export const SCRAPE_MAX_URL_LENGTH_ENV_VAR = 'SCRAPE_MAX_URL_LENGTH';
 
 const ALLOWED_SCRAPE_URL_PROTOCOLS = new Set(['http:', 'https:']);
+const ALLOWED_SCRAPE_PROXY_PROTOCOLS = new Set(['http:', 'https:']);
 
 export interface ScrapeMessagingConfig {
   jobQueueName: string;
@@ -56,6 +58,7 @@ export const MAX_SCRAPE_URL_LENGTH =
 
 export interface SubmitScrapeJobPayload {
   url: string;
+  proxy?: string;
 }
 
 export interface GetScrapeJobPayload {
@@ -100,6 +103,13 @@ export class InvalidScrapeUrlError extends Error {
   }
 }
 
+export class InvalidScrapeProxyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'InvalidScrapeProxyError';
+  }
+}
+
 export function normalizeAndValidateScrapeUrl(value: unknown): string {
   if (typeof value !== 'string') {
     throw new InvalidScrapeUrlError('url must be a string');
@@ -134,4 +144,42 @@ export function normalizeAndValidateScrapeUrl(value: unknown): string {
   }
 
   return normalizedUrl;
+}
+
+export function normalizeAndValidateScrapeProxy(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new InvalidScrapeProxyError('proxy must be a string');
+  }
+
+  const normalizedProxy = value.trim();
+
+  if (normalizedProxy.length === 0) {
+    throw new InvalidScrapeProxyError('proxy must not be empty');
+  }
+
+  if (normalizedProxy.length > DEFAULT_MAX_SCRAPE_PROXY_LENGTH) {
+    throw new InvalidScrapeProxyError(
+      `proxy must not exceed ${DEFAULT_MAX_SCRAPE_PROXY_LENGTH} characters`,
+    );
+  }
+
+  let parsedProxy: URL;
+
+  try {
+    parsedProxy = new URL(normalizedProxy);
+  } catch {
+    throw new InvalidScrapeProxyError('proxy must be a valid absolute URL');
+  }
+
+  if (!ALLOWED_SCRAPE_PROXY_PROTOCOLS.has(parsedProxy.protocol)) {
+    throw new InvalidScrapeProxyError(
+      'proxy must use the http or https protocol',
+    );
+  }
+
+  if (parsedProxy.hostname.length === 0) {
+    throw new InvalidScrapeProxyError('proxy must include a hostname');
+  }
+
+  return normalizedProxy;
 }

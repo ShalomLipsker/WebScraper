@@ -47,7 +47,10 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
         });
 
         try {
-          const html = await this.scrapeEngineService.fetchHtml(message.data.url);
+          const html = await this.scrapeEngineService.fetchHtml(
+            message.data.url,
+            message.data.proxy,
+          );
           const resultKey = createScrapeResultKey(message.id);
 
           await this.storageService.putText({
@@ -71,6 +74,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
             jobId: message.id,
             messageName: message.name,
             sourceUrl: message.data.url,
+            usedProxy: Boolean(message.data.proxy),
             htmlLength: html.length,
             resultPath: resultKey,
           });
@@ -86,6 +90,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
               jobId: message.id,
               messageName: message.name,
               sourceUrl: message.data.url,
+              usedProxy: Boolean(message.data.proxy),
               errorMessage: error.message,
             });
 
@@ -111,6 +116,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
             jobId: message.id,
             messageName: message.name,
             sourceUrl: message.data.url,
+            usedProxy: Boolean(message.data.proxy),
             attemptsMade: message.attemptsMade,
             maxAttempts: message.maxAttempts,
             errorMessage,

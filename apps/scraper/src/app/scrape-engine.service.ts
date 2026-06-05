@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
-import axios from 'axios';
+import axios, { type AxiosProxyConfig, type AxiosRequestConfig } from 'axios';
 import { PinoLoggerService } from '@org/logger';
 import { scraperFetchConfig } from './app.config';
 
@@ -20,20 +20,28 @@ export class ScrapeEngineService {
     private readonly logger: PinoLoggerService,
   ) {}
 
-  async fetchHtml(url: string): Promise<string> {
+  async fetchHtml(url: string, proxy?: string): Promise<string> {
     let lastError: unknown;
     const { fetchConfig } = this;
+    const proxyConfig = proxy ? this.createProxyConfig(proxy) : undefined;
+    const proxyLabel = this.getProxyLabel(proxy);
 
     for (let attempt = 1; attempt <= fetchConfig.maxRetryAttempts; attempt += 1) {
       const userAgent = this.nextUserAgent();
       const releaseSlot = await this.acquireRequestSlot();
 
       try {
-        this.logger.log(
-          `starting scrape request for ${url} (attempt ${attempt}/${fetchConfig.maxRetryAttempts}) with user-agent ${userAgent}`,
-        );
+        this.logger.log({
+          event: 'starting scrape request',
+          sourceUrl: url,
+          attempt,
+          maxAttempts: fetchConfig.maxRetryAttempts,
+          userAgent,
+          usedProxy: Boolean(proxyLabel),
+          proxy: proxyLabel ?? undefined,
+        });
 
-        const response = await axios.get<string>(url, {
+        const requestConfig: AxiosRequestConfig<string> = {
           responseType: 'text',
           timeout: fetchConfig.requestTimeoutMs,
           maxRedirects: 5,
@@ -43,15 +51,28 @@ export class ScrapeEngineService {
           },
           transformResponse: [(value: string) => value],
           validateStatus: (status: number) => status >= 200 && status < 400,
-        });
+        };
+
+        if (proxyConfig) {
+          requestConfig.proxy = proxyConfig;
+        }
+
+        const response = await axios.get<string>(url, requestConfig);
 
         const html = typeof response.data === 'string'
           ? response.data
           : String(response.data);
 
-        this.logger.log(
-          `completed scrape request for ${url} with status ${response.status} and ${html.length} bytes`,
-        );
+        this.logger.log({
+          event: 'completed scrape request',
+          sourceUrl: url,
+          attempt,
+          maxAttempts: fetchConfig.maxRetryAttempts,
+          statusCode: response.status,
+          htmlLength: html.length,
+          usedProxy: Boolean(proxyLabel),
+          proxy: proxyLabel ?? undefined,
+        });
 
         return html;
       } catch (error: unknown) {
@@ -64,17 +85,32 @@ export class ScrapeEngineService {
         if (shouldRetry) {
           const retryDelayMs = this.getRetryDelayMs(attempt, statusCode);
 
-          this.logger.warn(
-            `scrape request failed for ${url} on attempt ${attempt}/${fetchConfig.maxRetryAttempts} (${errorMessage}); retrying in ${retryDelayMs}ms`,
-          );
+          this.logger.warn({
+            event: 'retrying scrape request',
+            sourceUrl: url,
+            attempt,
+            maxAttempts: fetchConfig.maxRetryAttempts,
+            statusCode,
+            retryDelayMs,
+            errorMessage,
+            usedProxy: Boolean(proxyLabel),
+            proxy: proxyLabel ?? undefined,
+          });
 
           await this.delay(retryDelayMs);
           continue;
         }
 
-        this.logger.error(
-          `scrape request failed for ${url} on attempt ${attempt}/${fetchConfig.maxRetryAttempts}: ${errorMessage}`,
-        );
+        this.logger.error({
+          event: 'failed scrape request',
+          sourceUrl: url,
+          attempt,
+          maxAttempts: fetchConfig.maxRetryAttempts,
+          statusCode,
+          errorMessage,
+          usedProxy: Boolean(proxyLabel),
+          proxy: proxyLabel ?? undefined,
+        });
       } finally {
         releaseSlot();
       }
@@ -124,6 +160,36 @@ export class ScrapeEngineService {
     this.userAgentIndex += 1;
 
     return userAgent;
+  }
+
+  private createProxyConfig(proxy: string): AxiosProxyConfig {
+    const parsedProxy = new URL(proxy);
+    const defaultPort = parsedProxy.protocol === 'https:' ? 443 : 80;
+
+    return {
+      protocol: parsedProxy.protocol.slice(0, -1),
+      host: parsedProxy.hostname,
+      port: parsedProxy.port ? Number(parsedProxy.port) : defaultPort,
+      auth:
+        parsedProxy.username || parsedProxy.password
+          ? {
+            username: decodeURIComponent(parsedProxy.username),
+            password: decodeURIComponent(parsedProxy.password),
+          }
+          : undefined,
+    };
+  }
+
+  private getProxyLabel(proxy?: string): string | null {
+    if (!proxy) {
+      return null;
+    }
+
+    const parsedProxy = new URL(proxy);
+    const defaultPort = parsedProxy.protocol === 'https:' ? '443' : '80';
+    const port = parsedProxy.port || defaultPort;
+
+    return `${parsedProxy.protocol}//${parsedProxy.hostname}:${port}`;
   }
 
   private shouldRetry(error: unknown): boolean {

@@ -11,7 +11,9 @@ import type {
   SubmitScrapeJobPayload,
 } from '@org/domain';
 import {
+  InvalidScrapeProxyError,
   InvalidScrapeUrlError,
+  normalizeAndValidateScrapeProxy,
   normalizeAndValidateScrapeUrl,
 } from '@org/domain';
 import type { IJobSubmissionStore } from '@org/persistence';
@@ -37,7 +39,8 @@ export class ScrapeJobsService {
     payload: SubmitScrapeJobPayload,
   ): Promise<SubmitScrapeJobAcknowledgement> {
     const url = this.normalizeSubmittedUrl(payload.url);
-    const jobId = hashUrl(url);
+    const proxy = this.normalizeSubmittedProxy(payload.proxy);
+    const jobId = hashJobRequest(url, proxy);
     const status: JobStatus = 'SUBMITTED';
 
     const { job, alreadyExisted } = await this.jobSubmissionStore.createJobSubmissionIfNotExists(
@@ -51,7 +54,10 @@ export class ScrapeJobsService {
         message: {
           id: jobId,
           name: this.messagingConfig.jobPattern,
-          data: { url },
+          data: {
+            url,
+            ...(proxy ? { proxy } : {}),
+          },
         },
       },
     );
@@ -86,10 +92,28 @@ export class ScrapeJobsService {
       throw error;
     }
   }
+
+  private normalizeSubmittedProxy(proxy: unknown): string | undefined {
+    if (proxy === undefined) {
+      return undefined;
+    }
+
+    try {
+      return normalizeAndValidateScrapeProxy(proxy);
+    } catch (error: unknown) {
+      if (error instanceof InvalidScrapeProxyError) {
+        throw new BadRequestException(error.message);
+      }
+
+      throw error;
+    }
+  }
 }
 
-function hashUrl(url: string): string {
-  return createHash('sha256').update(url).digest('hex');
+function hashJobRequest(url: string, proxy?: string): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ url, proxy: proxy ?? null }))
+    .digest('hex');
 }
 
 function createAcknowledgement(
