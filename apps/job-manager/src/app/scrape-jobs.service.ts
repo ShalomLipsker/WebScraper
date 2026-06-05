@@ -6,6 +6,7 @@ import type {
   GetScrapeJobPayload,
   GetScrapeJobResult,
   IJobRepository,
+  JobMetadata,
   JobStatus,
   ScrapeJobStatusView,
   SubmitScrapeJobAcknowledgement,
@@ -71,17 +72,39 @@ export class ScrapeJobsService {
       return null;
     }
 
-    const resolvedJob = await this.recoverSubmittedJobIfStale(job.id) ?? job;
+    const resolvedJob = await this.reconcileJobStatus(job.id) ?? job;
 
     return createStatusView(resolvedJob);
   }
 
-  private async recoverSubmittedJobIfStale(
+  private async reconcileJobStatus(
     jobId: string,
-  ) {
+  ): Promise<JobMetadata | null> {
     const job = await this.jobRepository.getJob(jobId);
 
-    if (!job || job.status !== 'SUBMITTED') {
+    if (!job) {
+      return job;
+    }
+
+    if (job.status === 'SUBMITTED') {
+      return this.recoverSubmittedJobIfStale(job);
+    }
+
+    if (job.status === 'ENQUEUED') {
+      return this.recoverQueuedJobIfStale(job as JobMetadata & { status: 'ENQUEUED' });
+    }
+
+    if (job.status === 'PROCESSING') {
+      return this.recoverQueuedJobIfStale(job as JobMetadata & { status: 'PROCESSING' });
+    }
+
+    return job;
+  }
+
+  private async recoverSubmittedJobIfStale(
+    job: JobMetadata,
+  ): Promise<JobMetadata | null> {
+    if (job.status !== 'SUBMITTED') {
       return job;
     }
 
@@ -124,6 +147,45 @@ export class ScrapeJobsService {
       await this.jobRepository.updateJobStatus(job.id, 'ENQUEUED');
 
       return await this.jobRepository.getJob(job.id);
+    } catch {
+      return job;
+    }
+  }
+
+  private async recoverQueuedJobIfStale(
+    job: JobMetadata & { status: Extract<JobStatus, 'ENQUEUED' | 'PROCESSING'> },
+  ): Promise<JobMetadata | null> {
+    if (
+      Date.now() - job.updatedAt.getTime()
+      < this.recoveryConfig.submittedDelayMs
+    ) {
+      return job;
+    }
+
+    try {
+      const queueState = await this.messageQueue.getJobState(job.id);
+
+      if (queueState === 'queued' && job.status !== 'ENQUEUED') {
+        await this.jobRepository.updateJobStatus(job.id, 'ENQUEUED');
+        return await this.jobRepository.getJob(job.id);
+      }
+
+      if (queueState === 'processing' && job.status !== 'PROCESSING') {
+        await this.jobRepository.updateJobStatus(job.id, 'PROCESSING');
+        return await this.jobRepository.getJob(job.id);
+      }
+
+      if (queueState === 'failed') {
+        await this.jobRepository.updateJobStatus(job.id, 'FAILED', {
+          errorMessage:
+            job.errorMessage
+            || 'Queue reported the job as failed before a terminal status update was recorded.',
+        });
+
+        return await this.jobRepository.getJob(job.id);
+      }
+
+      return job;
     } catch {
       return job;
     }

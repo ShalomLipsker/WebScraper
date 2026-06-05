@@ -120,6 +120,13 @@ function resolveStorageLocation(
     };
   }
 
+  if (defaultBucket) {
+    return {
+      bucket: defaultBucket,
+      key: filePath,
+    };
+  }
+
   const separatorIndex = filePath.indexOf('/');
 
   if (separatorIndex > 0 && separatorIndex < filePath.length - 1) {
@@ -130,7 +137,6 @@ function resolveStorageLocation(
   }
 
   return {
-    bucket: defaultBucket,
     key: filePath,
   };
 }

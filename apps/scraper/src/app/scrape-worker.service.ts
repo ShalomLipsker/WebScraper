@@ -130,7 +130,7 @@ function createStatusUpdateMessageId(
   jobId: string,
   status: ScrapeJobStatusUpdatePayload['status'],
 ): string {
-  return `${jobId}:${status.toLowerCase()}`;
+  return `${jobId}-${status.toLowerCase()}`;
 }
 
 function toErrorMessage(error: unknown): string {

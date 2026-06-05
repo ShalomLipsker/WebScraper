@@ -2,7 +2,9 @@
   "name": "@org/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "simulate:scrape": "node ./scripts/simulate-scrape-request.mjs"
+  },
   "private": true,
   "devDependencies": {
     "@nestjs/schematics": "^11.0.0",
