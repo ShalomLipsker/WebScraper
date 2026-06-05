@@ -1,7 +1,8 @@
 import { type DynamicModule } from '@nestjs/common';
 import { ConfigModule, ConfigService, registerAs } from '@nestjs/config';
+import { readScrapeMessagingConfig, type ScrapeMessagingConfig } from '@org/domain';
 import { plainToInstance, Transform } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
 const APP_CONFIG_NAMESPACE = 'app';
 const DEFAULT_SCRAPER_USER_AGENTS = [
@@ -18,6 +19,15 @@ export interface ScraperConfig {
   http: {
     port: number;
   };
+  storage: {
+    region: string;
+    endpoint?: string;
+    forcePathStyle: boolean;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    defaultBucket?: string;
+  };
+  messaging: ScrapeMessagingConfig;
   fetch: {
     requestTimeoutMs: number;
     maxRetryAttempts: number;
@@ -44,6 +54,66 @@ class EnvironmentVariables {
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))
   PORT: number = 3002;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  S3_REGION: string = 'us-east-1';
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  S3_ENDPOINT?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+  })
+  S3_FORCE_PATH_STYLE: boolean = true;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  S3_ACCESS_KEY_ID?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  S3_SECRET_ACCESS_KEY?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  S3_DEFAULT_BUCKET?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_QUEUE_NAME?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_STATUS_QUEUE_NAME?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_PATTERN?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_STATUS_PATTERN?: string;
 
   @IsInt()
   @Min(1)
@@ -96,6 +166,16 @@ function validateEnvironmentVariables(
     NODE_ENV: validatedConfig.NODE_ENV,
     LOG_LEVEL: validatedConfig.LOG_LEVEL,
     PORT: String(validatedConfig.PORT),
+    S3_REGION: validatedConfig.S3_REGION,
+    S3_ENDPOINT: validatedConfig.S3_ENDPOINT,
+    S3_FORCE_PATH_STYLE: String(validatedConfig.S3_FORCE_PATH_STYLE),
+    S3_ACCESS_KEY_ID: validatedConfig.S3_ACCESS_KEY_ID,
+    S3_SECRET_ACCESS_KEY: validatedConfig.S3_SECRET_ACCESS_KEY,
+    S3_DEFAULT_BUCKET: validatedConfig.S3_DEFAULT_BUCKET,
+    SCRAPE_JOB_QUEUE_NAME: validatedConfig.SCRAPE_JOB_QUEUE_NAME,
+    SCRAPE_STATUS_QUEUE_NAME: validatedConfig.SCRAPE_STATUS_QUEUE_NAME,
+    SCRAPE_JOB_PATTERN: validatedConfig.SCRAPE_JOB_PATTERN,
+    SCRAPE_JOB_STATUS_PATTERN: validatedConfig.SCRAPE_JOB_STATUS_PATTERN,
     SCRAPER_REQUEST_TIMEOUT_MS: String(validatedConfig.SCRAPER_REQUEST_TIMEOUT_MS),
     SCRAPER_MAX_RETRY_ATTEMPTS: String(validatedConfig.SCRAPER_MAX_RETRY_ATTEMPTS),
     SCRAPER_MAX_CONCURRENT_REQUESTS: String(validatedConfig.SCRAPER_MAX_CONCURRENT_REQUESTS),
@@ -105,6 +185,8 @@ function validateEnvironmentVariables(
   };
 }
 
+export const scraperMessagingBindings = readScrapeMessagingConfig(process.env);
+
 const scraperConfig = registerAs(APP_CONFIG_NAMESPACE, (): ScraperConfig => {
   return {
     serviceName: 'scraper',
@@ -113,6 +195,15 @@ const scraperConfig = registerAs(APP_CONFIG_NAMESPACE, (): ScraperConfig => {
     http: {
       port: Number(process.env.PORT),
     },
+    storage: {
+      region: process.env.S3_REGION || 'us-east-1',
+      endpoint: process.env.S3_ENDPOINT || undefined,
+      forcePathStyle: readBooleanEnv(process.env.S3_FORCE_PATH_STYLE, true),
+      accessKeyId: process.env.S3_ACCESS_KEY_ID || undefined,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || undefined,
+      defaultBucket: process.env.S3_DEFAULT_BUCKET || undefined,
+    },
+    messaging: scraperMessagingBindings,
     fetch: {
       requestTimeoutMs: Number(process.env.SCRAPER_REQUEST_TIMEOUT_MS),
       maxRetryAttempts: Number(process.env.SCRAPER_MAX_RETRY_ATTEMPTS),
@@ -135,6 +226,14 @@ function parseUserAgents(value: string | undefined): string[] {
   }
 
   return parsedUserAgents;
+}
+
+function readBooleanEnv(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value === '') {
+    return fallback;
+  }
+
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
 export const scraperConfigModule: Promise<DynamicModule> = ConfigModule.forRoot({

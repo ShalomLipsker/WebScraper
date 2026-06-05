@@ -11,7 +11,6 @@ import type {
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
 } from '@org/domain';
-import { SCRAPE_JOB_PATTERN } from '@org/domain';
 import type { IMessageQueue } from '@org/messaging';
 import { MESSAGE_QUEUE_TOKEN } from '@org/messaging';
 import { JOB_REPOSITORY_TOKEN } from '@org/persistence';
@@ -51,7 +50,7 @@ export class ScrapeJobsService {
     await this.messageQueue.publish(
       {
         id: jobId,
-        name: SCRAPE_JOB_PATTERN,
+        name: this.appConfig.messaging.jobPattern,
         data: { url },
       },
     );
@@ -114,7 +113,7 @@ export class ScrapeJobsService {
         await this.messageQueue.publish(
           {
             id: job.id,
-            name: SCRAPE_JOB_PATTERN,
+            name: this.appConfig.messaging.jobPattern,
             data: { url: job.url },
           },
         );

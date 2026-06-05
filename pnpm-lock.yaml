@@ -191,6 +191,9 @@ importers:
       '@org/messaging':
         specifier: workspace:*
         version: link:../../packages/messaging
+      '@org/storage':
+        specifier: workspace:*
+        version: link:../../packages/storage
       axios:
         specifier: ^1.17.0
         version: 1.17.0

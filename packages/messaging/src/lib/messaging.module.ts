@@ -1,4 +1,8 @@
-import { Module, type DynamicModule } from '@nestjs/common';
+import {
+  Module,
+  type DynamicModule,
+  type FactoryProvider,
+} from '@nestjs/common';
 
 import { BullMqMessageQueue } from './bullmq-message-queue.js';
 import {
@@ -15,6 +19,7 @@ import {
 } from './messaging.constants.js';
 import type {
   BullMqMessagingModuleOptions,
+  MessagingModuleAsyncOptions,
   ResolvedBullMqMessagingModuleOptions,
 } from './messaging.types.js';
 
@@ -32,6 +37,30 @@ export class MessagingModule {
           provide: BULLMQ_MESSAGING_OPTIONS_TOKEN,
           useValue: resolvedOptions,
         },
+        BullMqMessageQueue,
+        {
+          provide: MESSAGE_QUEUE_TOKEN,
+          useExisting: BullMqMessageQueue,
+        },
+      ],
+      exports: [MESSAGE_QUEUE_TOKEN, BullMqMessageQueue],
+    };
+  }
+
+  static registerAsync(options: MessagingModuleAsyncOptions): DynamicModule {
+    const optionsProvider: FactoryProvider<ResolvedBullMqMessagingModuleOptions> = {
+      provide: BULLMQ_MESSAGING_OPTIONS_TOKEN,
+      useFactory: async (...args: unknown[]) => resolveBullMqMessagingOptions(
+        await options.useFactory(...args),
+      ),
+      inject: options.inject ?? [],
+    };
+
+    return {
+      module: MessagingModule,
+      imports: options.imports,
+      providers: [
+        optionsProvider,
         BullMqMessageQueue,
         {
           provide: MESSAGE_QUEUE_TOKEN,

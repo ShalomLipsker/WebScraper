@@ -4,8 +4,6 @@ import { ClientProxy } from '@nestjs/microservices';
 import type { Readable } from 'node:stream';
 import {
   GetScrapeJobResult,
-  SCRAPE_JOB_STATUS_PATTERN,
-  SCRAPE_JOB_PATTERN,
   ScrapeJobStatusView,
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
@@ -47,7 +45,7 @@ export class ScrapeGatewayService {
   ): Promise<SubmitScrapeJobAcknowledgement> {
     return firstValueFrom(
       this.jobManagerClient.send<SubmitScrapeJobAcknowledgement>(
-        SCRAPE_JOB_PATTERN,
+        this.appConfig.messaging.jobPattern,
         payload,
       ),
     );
@@ -56,7 +54,7 @@ export class ScrapeGatewayService {
   getJobStatus(jobId: string): Promise<GetScrapeJobResult> {
     return firstValueFrom(
       this.jobManagerClient.send<ScrapeJobStatusView | null>(
-        SCRAPE_JOB_STATUS_PATTERN,
+        this.appConfig.messaging.statusPattern,
         { jobId },
       ),
     );

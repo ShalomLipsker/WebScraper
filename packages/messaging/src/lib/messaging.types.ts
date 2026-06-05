@@ -1,3 +1,9 @@
+import type {
+  DynamicModule,
+  InjectionToken,
+  OptionalFactoryDependency,
+  Type,
+} from '@nestjs/common';
 import type { ConnectionOptions, WorkerOptions } from 'bullmq';
 
 export interface QueueHistoryRetention {
@@ -41,6 +47,7 @@ export interface QueueHandlerMessage<TPayload> {
   name: string;
   data: TPayload;
   attemptsMade: number;
+  maxAttempts: number;
   timestamp: number;
 }
 
@@ -98,3 +105,11 @@ export type ResolvedBullMqMessagingModuleOptions =
     prefix?: string;
     defaultPublishOptions: Required<QueuePublishOptions>;
   }
+
+export interface MessagingModuleAsyncOptions {
+  imports?: Array<Type<unknown> | DynamicModule | Promise<DynamicModule>>;
+  inject?: Array<InjectionToken | OptionalFactoryDependency>;
+  useFactory: (...args: unknown[]) =>
+    | BullMqMessagingModuleOptions
+    | Promise<BullMqMessagingModuleOptions>;
+}

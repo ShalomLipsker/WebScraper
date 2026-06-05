@@ -1,5 +1,6 @@
 import { type DynamicModule } from '@nestjs/common';
 import { ConfigModule, ConfigService, registerAs } from '@nestjs/config';
+import { readScrapeMessagingConfig, type ScrapeMessagingConfig } from '@org/domain';
 import { plainToInstance, Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
@@ -16,6 +17,7 @@ export interface ApiConfig {
     host: string;
     tcpPort: number;
   };
+  messaging: ScrapeMessagingConfig;
   storage: {
     region: string;
     endpoint?: string;
@@ -55,6 +57,26 @@ class EnvironmentVariables {
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))
   JOB_MANAGER_TCP_PORT: number = 4001;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_QUEUE_NAME?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_STATUS_QUEUE_NAME?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_PATTERN?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_STATUS_PATTERN?: string;
 
   @IsString()
   @IsOptional()
@@ -120,6 +142,10 @@ function validateEnvironmentVariables(
     PORT: String(validatedConfig.PORT),
     JOB_MANAGER_HOST: validatedConfig.JOB_MANAGER_HOST,
     JOB_MANAGER_TCP_PORT: String(validatedConfig.JOB_MANAGER_TCP_PORT),
+    SCRAPE_JOB_QUEUE_NAME: validatedConfig.SCRAPE_JOB_QUEUE_NAME,
+    SCRAPE_STATUS_QUEUE_NAME: validatedConfig.SCRAPE_STATUS_QUEUE_NAME,
+    SCRAPE_JOB_PATTERN: validatedConfig.SCRAPE_JOB_PATTERN,
+    SCRAPE_JOB_STATUS_PATTERN: validatedConfig.SCRAPE_JOB_STATUS_PATTERN,
     S3_REGION: validatedConfig.S3_REGION,
     S3_ENDPOINT: validatedConfig.S3_ENDPOINT,
     S3_FORCE_PATH_STYLE: String(validatedConfig.S3_FORCE_PATH_STYLE),
@@ -129,6 +155,8 @@ function validateEnvironmentVariables(
     SCRAPE_RESULT_PRESIGN_TTL_SECONDS: String(validatedConfig.SCRAPE_RESULT_PRESIGN_TTL_SECONDS),
   };
 }
+
+export const apiMessagingBindings = readScrapeMessagingConfig(process.env);
 
 const apiConfig = registerAs(APP_CONFIG_NAMESPACE, (): ApiConfig => {
   return {
@@ -142,6 +170,7 @@ const apiConfig = registerAs(APP_CONFIG_NAMESPACE, (): ApiConfig => {
       host: process.env.JOB_MANAGER_HOST || '127.0.0.1',
       tcpPort: Number(process.env.JOB_MANAGER_TCP_PORT),
     },
+    messaging: apiMessagingBindings,
     storage: {
       region: process.env.S3_REGION || 'us-east-1',
       endpoint: process.env.S3_ENDPOINT || undefined,

@@ -1,5 +1,6 @@
 import { type DynamicModule } from '@nestjs/common';
 import { ConfigModule, ConfigService, registerAs } from '@nestjs/config';
+import { readScrapeMessagingConfig, type ScrapeMessagingConfig } from '@org/domain';
 import { plainToInstance, Transform } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
@@ -16,6 +17,7 @@ export interface JobManagerAppConfig {
     host: string;
     tcpPort: number;
   };
+  messaging: ScrapeMessagingConfig;
   recovery: {
     submittedDelayMs: number;
     submittedLeaseSeconds: number;
@@ -57,6 +59,26 @@ class EnvironmentVariables {
   @Transform(({ value }) => (value ? Number(value) : undefined))
   SUBMITTED_RECOVERY_DELAY_MS: number = 10_000;
 
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_QUEUE_NAME?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_STATUS_QUEUE_NAME?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_PATTERN?: string;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
+  SCRAPE_JOB_STATUS_PATTERN?: string;
+
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -81,10 +103,16 @@ function validateEnvironmentVariables(
     PORT: String(validatedConfig.PORT),
     JOB_MANAGER_HOST: validatedConfig.JOB_MANAGER_HOST,
     JOB_MANAGER_TCP_PORT: String(validatedConfig.JOB_MANAGER_TCP_PORT),
+    SCRAPE_JOB_QUEUE_NAME: validatedConfig.SCRAPE_JOB_QUEUE_NAME,
+    SCRAPE_STATUS_QUEUE_NAME: validatedConfig.SCRAPE_STATUS_QUEUE_NAME,
+    SCRAPE_JOB_PATTERN: validatedConfig.SCRAPE_JOB_PATTERN,
+    SCRAPE_JOB_STATUS_PATTERN: validatedConfig.SCRAPE_JOB_STATUS_PATTERN,
     SUBMITTED_RECOVERY_DELAY_MS: String(validatedConfig.SUBMITTED_RECOVERY_DELAY_MS),
     SUBMITTED_RECOVERY_LEASE_SECONDS: String(validatedConfig.SUBMITTED_RECOVERY_LEASE_SECONDS),
   };
 }
+
+export const jobManagerMessagingBindings = readScrapeMessagingConfig(process.env);
 
 const jobManagerConfig = registerAs(
   APP_CONFIG_NAMESPACE,
@@ -100,6 +128,7 @@ const jobManagerConfig = registerAs(
         host: process.env.JOB_MANAGER_HOST || '127.0.0.1',
         tcpPort: Number(process.env.JOB_MANAGER_TCP_PORT),
       },
+      messaging: jobManagerMessagingBindings,
       recovery: {
         submittedDelayMs: Number(process.env.SUBMITTED_RECOVERY_DELAY_MS),
         submittedLeaseSeconds: Number(process.env.SUBMITTED_RECOVERY_LEASE_SECONDS),

@@ -128,6 +128,7 @@ function mapJob<TPayload, TResult>(job: Job<TPayload, TResult>) {
     name: job.name,
     data: job.data,
     attemptsMade: job.attemptsMade,
+    maxAttempts: job.opts.attempts ?? DEFAULT_JOB_ATTEMPTS,
     timestamp: job.timestamp,
   };
 }
