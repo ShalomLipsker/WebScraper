@@ -41,7 +41,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
           return { status: 'IGNORED' };
         }
 
-        await this.publishStatusUpdate({
+        await this.publishStatusUpdateOrThrow({
           jobId: message.id,
           status: 'PROCESSING',
         });
@@ -60,41 +60,72 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
             },
           });
 
-          await this.publishStatusUpdate({
+          await this.publishStatusUpdateOrThrow({
             jobId: message.id,
             status: 'COMPLETED',
             resultPath: resultKey,
           });
 
-          this.logger.log(
-            `completed scrape job ${message.id} (${message.name}) and uploaded ${html.length} characters to ${resultKey}`,
-          );
+          this.logger.log({
+            event: 'completed scrape job',
+            jobId: message.id,
+            messageName: message.name,
+            sourceUrl: message.data.url,
+            htmlLength: html.length,
+            resultPath: resultKey,
+          });
 
           return {
             status: 'COMPLETED' as const,
             resultPath: resultKey,
           };
         } catch (error: unknown) {
+          if (error instanceof StatusPublishError) {
+            this.logger.error({
+              event: 'failed to publish scrape job status',
+              jobId: message.id,
+              messageName: message.name,
+              sourceUrl: message.data.url,
+              errorMessage: error.message,
+            });
+
+            throw error;
+          }
+
           const errorMessage = toErrorMessage(error);
 
           if (message.attemptsMade + 1 >= message.maxAttempts) {
-            await this.publishStatusUpdate({
-              jobId: message.id,
-              status: 'FAILED',
-              errorMessage,
-            });
+            try {
+              await this.publishStatusUpdate({
+                jobId: message.id,
+                status: 'FAILED',
+                errorMessage,
+              });
+            } catch (publishError: unknown) {
+              throw new StatusPublishError(toErrorMessage(publishError));
+            }
           }
 
-          this.logger.error(
-            `failed scrape job ${message.id} (${message.name}) for ${message.data.url}: ${errorMessage}`,
-          );
+          this.logger.error({
+            event: 'failed scrape job',
+            jobId: message.id,
+            messageName: message.name,
+            sourceUrl: message.data.url,
+            attemptsMade: message.attemptsMade,
+            maxAttempts: message.maxAttempts,
+            errorMessage,
+          });
 
           throw error;
         }
       },
     );
 
-    this.logger.log('registered BullMQ scrape worker');
+    this.logger.log({
+      event: 'registered RabbitMQ scrape worker',
+      jobPattern: this.messagingConfig.jobPattern,
+      statusPattern: this.messagingConfig.statusPattern,
+    });
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -115,11 +146,25 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
       data: payload,
     });
   }
+
+  private async publishStatusUpdateOrThrow(
+    payload: ScrapeJobStatusUpdatePayload,
+  ): Promise<void> {
+    try {
+      await this.publishStatusUpdate(payload);
+    } catch (error: unknown) {
+      throw new StatusPublishError(toErrorMessage(error));
+    }
+  }
 }
 
 interface ScrapeJobCompletionResult {
   status: 'COMPLETED' | 'IGNORED';
   resultPath?: string;
+}
+
+class StatusPublishError extends Error {
+  readonly deadLetterOnExhaustion = true;
 }
 
 function createScrapeResultKey(jobId: string): string {

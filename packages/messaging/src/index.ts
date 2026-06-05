@@ -1,6 +1,5 @@
-export * from './lib/bullmq-message-queue.js';
+export * from './lib/rabbitmq-message-queue.js';
 export * from './lib/messaging.constants.js';
 export * from './lib/messaging.module.js';
 export * from './lib/messaging.types.js';
-
-export { resolveRedisConnection } from './lib/messaging.module.js';
+export { resolveRabbitMqMessagingOptions } from './lib/messaging.module.js';

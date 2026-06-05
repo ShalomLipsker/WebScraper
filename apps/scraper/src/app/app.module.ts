@@ -1,17 +1,16 @@
 import { Module } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
 import {
-  BullMqMessageQueue,
   MessagingModule,
-  resolveBullMqMessagingOptions,
-  resolveRedisConnection,
+  RabbitMqMessageQueue,
+  resolveRabbitMqMessagingOptions,
 } from '@org/messaging';
 import { StructuredLoggerModule } from '@org/logger';
 import { StorageModule } from '@org/storage';
 import {
   scraperMessagingConfig,
   scraperConfigModule,
-  scraperRedisConfig,
+  scraperRabbitMqConfig,
   scraperStorageConfig,
 } from './app.config';
 import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
@@ -23,17 +22,20 @@ import { ScrapeWorkerService } from './scrape-worker.service';
     scraperConfigModule,
     MessagingModule.registerAsync({
       imports: [scraperConfigModule],
-      inject: [scraperMessagingConfig.KEY, scraperRedisConfig.KEY],
+      inject: [scraperMessagingConfig.KEY, scraperRabbitMqConfig.KEY],
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig, redisConfig] = args as [
+        const [messagingConfig, rabbitMqConfig] = args as [
           ConfigType<typeof scraperMessagingConfig>,
-          ConfigType<typeof scraperRedisConfig>,
+          ConfigType<typeof scraperRabbitMqConfig>,
         ];
 
         return {
+          url: rabbitMqConfig.url,
           queueName: messagingConfig.jobQueueName,
           defaultJobName: messagingConfig.jobPattern,
-          connection: resolveRedisConnection(redisConfig.url),
+          queueDeduplication: {
+            enabled: rabbitMqConfig.jobQueueDeduplicationEnabled,
+          },
         };
       },
     }),
@@ -67,20 +69,20 @@ import { ScrapeWorkerService } from './scrape-worker.service';
     {
       provide: SCRAPE_STATUS_QUEUE_TOKEN,
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig, redisConfig] = args as [
+        const [messagingConfig, rabbitMqConfig] = args as [
           ConfigType<typeof scraperMessagingConfig>,
-          ConfigType<typeof scraperRedisConfig>,
+          ConfigType<typeof scraperRabbitMqConfig>,
         ];
 
-        return new BullMqMessageQueue(
-          resolveBullMqMessagingOptions({
+        return new RabbitMqMessageQueue(
+          resolveRabbitMqMessagingOptions({
+            url: rabbitMqConfig.url,
             queueName: messagingConfig.statusQueueName,
             defaultJobName: messagingConfig.statusPattern,
-            connection: resolveRedisConnection(redisConfig.url),
           }),
         );
       },
-      inject: [scraperMessagingConfig.KEY, scraperRedisConfig.KEY],
+      inject: [scraperMessagingConfig.KEY, scraperRabbitMqConfig.KEY],
     },
     ScrapeEngineService,
     ScrapeWorkerService,

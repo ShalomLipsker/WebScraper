@@ -1,74 +1,123 @@
 import {
-  Inject,
   Module,
   type DynamicModule,
-  type OnModuleDestroy,
+  type FactoryProvider,
+  type InjectionToken,
+  type OptionalFactoryDependency,
+  type Type,
 } from '@nestjs/common';
-import { Redis } from 'ioredis';
+import { TypeOrmModule } from '@nestjs/typeorm';
 
 import {
-  DEFAULT_REDIS_JOB_KEY_PREFIX,
-  DEFAULT_REDIS_JOB_TTL_SECONDS,
+  DEFAULT_JOB_RETENTION_SECONDS,
   JOB_REPOSITORY_TOKEN,
-  REDIS_CLIENT_TOKEN,
-  REDIS_PERSISTENCE_OPTIONS_TOKEN,
+  JOB_SUBMISSION_STORE_TOKEN,
+  OUTBOX_MESSAGE_STORE_TOKEN,
+  POSTGRES_PERSISTENCE_OPTIONS_TOKEN,
+  RECOVERY_LEASE_STORE_TOKEN,
 } from './persistence.constants.js';
-import type { RedisPersistenceModuleOptions } from './persistence.types.js';
-import { RedisJobRepository } from './redis-job-repository.js';
+import {
+  JobEntity,
+  JobMaintenanceLeaseEntity,
+  OutboxMessageEntity,
+} from './persistence.entities.js';
+import { PostgresJobRepository } from './postgres-job-repository.js';
+import { PostgresRecoveryLeaseStore } from './postgres-recovery-lease-store.js';
+import { PostgresJobSubmissionStore } from './postgres-job-submission-store.js';
+import { PostgresOutboxService } from './postgres-outbox.service.js';
+import type { PostgresPersistenceModuleOptions } from './persistence.types.js';
 
 @Module({})
 export class PersistenceModule {
-  static register(
-    options: RedisPersistenceModuleOptions = {},
-  ): DynamicModule {
-    const resolvedOptions: RedisPersistenceModuleOptions = {
-      keyPrefix: DEFAULT_REDIS_JOB_KEY_PREFIX,
-      ttlSeconds: DEFAULT_REDIS_JOB_TTL_SECONDS,
-      ...options,
+  static registerAsync(options: PersistenceModuleAsyncOptions): DynamicModule {
+    const optionsProvider: FactoryProvider<PostgresPersistenceModuleOptions> = {
+      provide: POSTGRES_PERSISTENCE_OPTIONS_TOKEN,
+      useFactory: async (...args: unknown[]) => resolvePersistenceModuleOptions(
+        await options.useFactory(...args),
+      ),
+      inject: options.inject ?? [],
     };
 
     return {
       module: PersistenceModule,
-      providers: [
-        {
-          provide: REDIS_PERSISTENCE_OPTIONS_TOKEN,
-          useValue: resolvedOptions,
-        },
-        {
-          provide: REDIS_CLIENT_TOKEN,
-          useFactory: (redisOptions: RedisPersistenceModuleOptions) => {
-            if (redisOptions.url) {
-              return new Redis(redisOptions.url, redisOptions.redis ?? {});
-            }
+      imports: [
+        ...(options.imports ?? []),
+        TypeOrmModule.forRootAsync({
+          imports: options.imports,
+          inject: options.inject ?? [],
+          useFactory: async (...args: unknown[]) => {
+            const resolvedOptions = resolvePersistenceModuleOptions(
+              await options.useFactory(...args),
+            );
 
-            return new Redis(redisOptions.redis ?? {});
+            return {
+              type: 'postgres' as const,
+              url: resolvedOptions.url,
+              schema: resolvedOptions.schema,
+              logging: resolvedOptions.logging ?? false,
+              synchronize: resolvedOptions.synchronize ?? false,
+              autoLoadEntities: false,
+              entities: [JobEntity, OutboxMessageEntity, JobMaintenanceLeaseEntity],
+            };
           },
-          inject: [REDIS_PERSISTENCE_OPTIONS_TOKEN],
-        },
-        RedisJobRepository,
+        }),
+        TypeOrmModule.forFeature([
+          JobEntity,
+          OutboxMessageEntity,
+          JobMaintenanceLeaseEntity,
+        ]),
+      ],
+      providers: [
+        optionsProvider,
+        PostgresJobRepository,
+        PostgresRecoveryLeaseStore,
+        PostgresJobSubmissionStore,
+        PostgresOutboxService,
         {
           provide: JOB_REPOSITORY_TOKEN,
-          useExisting: RedisJobRepository,
+          useExisting: PostgresJobRepository,
         },
-        RedisClientLifecycle,
+        {
+          provide: RECOVERY_LEASE_STORE_TOKEN,
+          useExisting: PostgresRecoveryLeaseStore,
+        },
+        {
+          provide: JOB_SUBMISSION_STORE_TOKEN,
+          useExisting: PostgresJobSubmissionStore,
+        },
+        {
+          provide: OUTBOX_MESSAGE_STORE_TOKEN,
+          useExisting: PostgresOutboxService,
+        },
       ],
       exports: [
-        REDIS_CLIENT_TOKEN,
         JOB_REPOSITORY_TOKEN,
-        RedisJobRepository,
+        RECOVERY_LEASE_STORE_TOKEN,
+        JOB_SUBMISSION_STORE_TOKEN,
+        OUTBOX_MESSAGE_STORE_TOKEN,
+        PostgresJobRepository,
+        PostgresRecoveryLeaseStore,
+        PostgresJobSubmissionStore,
+        PostgresOutboxService,
       ],
     };
   }
 }
 
-class RedisClientLifecycle implements OnModuleDestroy {
-  constructor(@Inject(REDIS_CLIENT_TOKEN) private readonly redis: Redis) {}
+export interface PersistenceModuleAsyncOptions {
+  imports?: Array<Type<unknown> | DynamicModule | Promise<DynamicModule>>;
+  inject?: Array<InjectionToken | OptionalFactoryDependency>;
+  useFactory: (...args: unknown[]) =>
+    | PostgresPersistenceModuleOptions
+    | Promise<PostgresPersistenceModuleOptions>;
+}
 
-  async onModuleDestroy(): Promise<void> {
-    if (this.redis.status === 'end') {
-      return;
-    }
-
-    await this.redis.quit();
-  }
+function resolvePersistenceModuleOptions(
+  options: PostgresPersistenceModuleOptions,
+): PostgresPersistenceModuleOptions {
+  return {
+    jobRetentionSeconds: DEFAULT_JOB_RETENTION_SECONDS,
+    synchronize: true,
+    ...options,
+  };
 }

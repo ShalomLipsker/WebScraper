@@ -8,7 +8,7 @@ import {
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
 } from '@org/domain';
-import { S3StorageService } from '@org/storage';
+import { resolveStorageLocation, S3StorageService } from '@org/storage';
 import { firstValueFrom } from 'rxjs';
 import { apiMessagingConfig, apiStorageConfig } from './app.config';
 import { JOB_MANAGER_CLIENT } from './job-manager-client';
@@ -96,47 +96,4 @@ export class ScrapeGatewayService {
       expiresAt: presignedObject.expiresAt,
     };
   }
-}
-
-function resolveStorageLocation(
-  filePath: string | undefined,
-  defaultBucket: string | undefined,
-): { bucket?: string; key: string } {
-  if (!filePath) {
-    throw new Error('Completed job is missing its storage path.');
-  }
-
-  if (filePath.startsWith('s3://')) {
-    const [, bucketAndKey = ''] = filePath.split('s3://');
-    const separatorIndex = bucketAndKey.indexOf('/');
-
-    if (separatorIndex <= 0 || separatorIndex === bucketAndKey.length - 1) {
-      throw new Error(`Invalid storage path: ${filePath}`);
-    }
-
-    return {
-      bucket: bucketAndKey.slice(0, separatorIndex),
-      key: bucketAndKey.slice(separatorIndex + 1),
-    };
-  }
-
-  if (defaultBucket) {
-    return {
-      bucket: defaultBucket,
-      key: filePath,
-    };
-  }
-
-  const separatorIndex = filePath.indexOf('/');
-
-  if (separatorIndex > 0 && separatorIndex < filePath.length - 1) {
-    return {
-      bucket: filePath.slice(0, separatorIndex),
-      key: filePath.slice(separatorIndex + 1),
-    };
-  }
-
-  return {
-    key: filePath,
-  };
 }

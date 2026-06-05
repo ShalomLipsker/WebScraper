@@ -1,42 +1,86 @@
 import { Module } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import {
-  BullMqMessageQueue,
   MessagingModule,
-  resolveBullMqMessagingOptions,
-  resolveRedisConnection,
+  RabbitMqMessageQueue,
+  resolveRabbitMqMessagingOptions,
 } from '@org/messaging';
 import { PersistenceModule } from '@org/persistence';
 import { StructuredLoggerModule } from '@org/logger';
+import { StorageModule } from '@org/storage';
 import {
   jobManagerConfigModule,
   jobManagerMessagingConfig,
-  jobManagerRedisConfig,
+  jobManagerPersistenceConfig,
+  jobManagerRabbitMqConfig,
+  jobManagerStorageConfig,
 } from './app.config';
+import { ExpiredJobsCleanupService } from './expired-jobs-cleanup.service';
 import { ScrapeJobsController } from './scrape-jobs.controller';
 import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
+import { ScrapeJobSubmissionOutboxService } from './scrape-job-submission-outbox.service';
 import { ScrapeJobStatusUpdatesService } from './scrape-job-status-updates.service';
 import { ScrapeJobsService } from './scrape-jobs.service';
 
 @Module({
   imports: [
     jobManagerConfigModule,
-    PersistenceModule.register({
-      url: process.env.REDIS_URL || undefined,
-    }),
-    MessagingModule.registerAsync({
+    ScheduleModule.forRoot(),
+    PersistenceModule.registerAsync({
       imports: [jobManagerConfigModule],
-      inject: [jobManagerMessagingConfig.KEY, jobManagerRedisConfig.KEY],
+      inject: [jobManagerPersistenceConfig.KEY],
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig, redisConfig] = args as [
-          ConfigType<typeof jobManagerMessagingConfig>,
-          ConfigType<typeof jobManagerRedisConfig>,
+        const [persistenceConfig] = args as [
+          ConfigType<typeof jobManagerPersistenceConfig>,
         ];
 
         return {
+          url: persistenceConfig.url,
+          synchronize: persistenceConfig.synchronize,
+          jobRetentionSeconds: persistenceConfig.jobRetentionSeconds,
+        };
+      },
+    }),
+    MessagingModule.registerAsync({
+      imports: [jobManagerConfigModule],
+      inject: [jobManagerMessagingConfig.KEY, jobManagerRabbitMqConfig.KEY],
+      useFactory: (...args: unknown[]) => {
+        const [messagingConfig, rabbitMqConfig] = args as [
+          ConfigType<typeof jobManagerMessagingConfig>,
+          ConfigType<typeof jobManagerRabbitMqConfig>,
+        ];
+
+        return {
+          url: rabbitMqConfig.url,
           queueName: messagingConfig.jobQueueName,
           defaultJobName: messagingConfig.jobPattern,
-          connection: resolveRedisConnection(redisConfig.url),
+          queueDeduplication: {
+            enabled: rabbitMqConfig.jobQueueDeduplicationEnabled,
+          },
+        };
+      },
+    }),
+    StorageModule.registerAsync({
+      imports: [jobManagerConfigModule],
+      inject: [jobManagerStorageConfig.KEY],
+      useFactory: (...args: unknown[]) => {
+        const [storageConfig] = args as [
+          ConfigType<typeof jobManagerStorageConfig>,
+        ];
+
+        return {
+          region: storageConfig.region,
+          endpoint: storageConfig.endpoint,
+          forcePathStyle: storageConfig.forcePathStyle,
+          credentials:
+            storageConfig.accessKeyId && storageConfig.secretAccessKey
+              ? {
+                accessKeyId: storageConfig.accessKeyId,
+                secretAccessKey: storageConfig.secretAccessKey,
+              }
+              : undefined,
+          defaultBucket: storageConfig.defaultBucket,
         };
       },
     }),
@@ -47,23 +91,25 @@ import { ScrapeJobsService } from './scrape-jobs.service';
     {
       provide: SCRAPE_STATUS_QUEUE_TOKEN,
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig, redisConfig] = args as [
+        const [messagingConfig, rabbitMqConfig] = args as [
           ConfigType<typeof jobManagerMessagingConfig>,
-          ConfigType<typeof jobManagerRedisConfig>,
+          ConfigType<typeof jobManagerRabbitMqConfig>,
         ];
 
-        return new BullMqMessageQueue(
-          resolveBullMqMessagingOptions({
+        return new RabbitMqMessageQueue(
+          resolveRabbitMqMessagingOptions({
+            url: rabbitMqConfig.url,
             queueName: messagingConfig.statusQueueName,
             defaultJobName: messagingConfig.statusPattern,
-            connection: resolveRedisConnection(redisConfig.url),
           }),
         );
       },
-      inject: [jobManagerMessagingConfig.KEY, jobManagerRedisConfig.KEY],
+      inject: [jobManagerMessagingConfig.KEY, jobManagerRabbitMqConfig.KEY],
     },
     ScrapeJobsService,
+    ScrapeJobSubmissionOutboxService,
     ScrapeJobStatusUpdatesService,
+    ExpiredJobsCleanupService,
   ],
 })
 export class AppModule { }

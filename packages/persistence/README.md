@@ -1,10 +1,11 @@
 # @org/persistence
 
-Redis-backed persistence primitives for the scraping pipeline.
+PostgreSQL-backed persistence primitives for the scraping pipeline.
 
 This package provides the NestJS module and repository implementation used to
 store and update scrape job metadata behind the shared `IJobRepository`
-contract from `@org/domain`.
+contract from `@org/domain`, along with the transactional outbox and recovery
+lease stores used by `job-manager`.
 
 ## Usage
 
@@ -35,9 +36,9 @@ export class JobsService {
 @Module({
 	imports: [
 		PersistenceModule.register({
-			url: process.env.REDIS_URL,
-			keyPrefix: 'jobs:',
-			ttlSeconds: 60 * 60 * 24,
+			url: process.env.POSTGRES_URL,
+			synchronize: true,
+			jobRetentionSeconds: 60 * 60 * 24,
 		}),
 	],
 	providers: [JobsService],
@@ -45,14 +46,15 @@ export class JobsService {
 export class JobsModule {}
 ```
 
-Defaults: key prefix `jobs:` and TTL `86400` seconds. Override them with
-`PersistenceModule.register({ keyPrefix, ttlSeconds, url, redis })`.
+Defaults: `synchronize: true` and `jobRetentionSeconds: 86400`. Override them
+with `PersistenceModule.register({ url, synchronize, jobRetentionSeconds })`.
 
 ## Build
 
 Run `pnpm nx build persistence` to build the library.
 
 
-### Known Issues
+### Notes
 
-- The `updateJobStatus` method in `RedisJobRepository` is not atomic and may not be safe to use in a concurrent environment. Currently, it assumes that only one process will be updating the status of a job. In the future, an optimistic locking mechanism may be added to address this issue.
+- Job submission can be coordinated through the exported submission and outbox store tokens for transactional create-and-publish flows.
+- Recovery leases are stored in PostgreSQL so multiple `job-manager` instances can coordinate cleanup and recovery work safely.

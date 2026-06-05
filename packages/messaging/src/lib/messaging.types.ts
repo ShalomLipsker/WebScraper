@@ -4,23 +4,22 @@ import type {
   OptionalFactoryDependency,
   Type,
 } from '@nestjs/common';
-import type { ConnectionOptions, WorkerOptions } from 'bullmq';
-
-export interface QueueHistoryRetention {
-  ageSeconds?: number;
-  maxCount?: number;
-}
 
 export interface QueueBackoffPolicy {
   type: 'fixed' | 'exponential';
   delayMs: number;
 }
 
+export type QueueMessageHeaderValue = string | number | boolean;
+
 export interface QueuePublishOptions {
   attempts?: number;
   backoff?: QueueBackoffPolicy;
-  removeOnComplete?: QueueHistoryRetention;
-  removeOnFail?: QueueHistoryRetention;
+  headers?: Record<string, QueueMessageHeaderValue>;
+}
+
+export interface RabbitMqQueueDeduplicationOptions {
+  enabled?: boolean;
 }
 
 export interface QueueMessage<TPayload> {
@@ -69,40 +68,29 @@ export interface IMessageQueue {
     options?: QueuePublishOptions,
   ): Promise<PublishedQueueMessage<TPayload>>;
 
-  getJobState(jobId: string): Promise<QueueJobState>;
-
   registerHandler<TPayload, TResult = void>(
     handler: MessageHandler<TPayload, TResult>,
     options?: MessageWorkerRegistrationOptions,
   ): Promise<IMessageWorker>;
 }
 
-export type MessagingWorkerOptions = Pick<
-  WorkerOptions,
-  | 'autorun'
-  | 'concurrency'
-  | 'drainDelay'
-  | 'lockDuration'
-  | 'maxStalledCount'
-  | 'removeOnComplete'
-  | 'removeOnFail'
-  | 'skipLockRenewal'
-  | 'skipStalledCheck'
-  | 'stalledInterval'
->;
-
-export interface BullMqMessagingModuleOptions {
+export interface RabbitMqMessagingModuleOptions {
+  url?: string;
   queueName?: string;
   defaultJobName?: string;
-  connection?: ConnectionOptions;
-  prefix?: string;
+  exchange?: string;
+  exchangeType?: 'direct' | 'fanout' | 'topic';
+  durable?: boolean;
+  prefetchCount?: number;
+  retryQueueName?: string;
+  deadLetterQueueName?: string;
+  queueDeduplication?: RabbitMqQueueDeduplicationOptions;
   defaultPublishOptions?: QueuePublishOptions;
-  worker?: MessagingWorkerOptions;
 }
 
-export type ResolvedBullMqMessagingModuleOptions =
-  Required<Omit<BullMqMessagingModuleOptions, 'prefix' | 'defaultPublishOptions'>> & {
-    prefix?: string;
+export type ResolvedRabbitMqMessagingModuleOptions =
+  Required<Omit<RabbitMqMessagingModuleOptions, 'defaultPublishOptions' | 'queueDeduplication'>> & {
+    queueDeduplication: Required<RabbitMqQueueDeduplicationOptions>;
     defaultPublishOptions: Required<QueuePublishOptions>;
   }
 
@@ -110,6 +98,6 @@ export interface MessagingModuleAsyncOptions {
   imports?: Array<Type<unknown> | DynamicModule | Promise<DynamicModule>>;
   inject?: Array<InjectionToken | OptionalFactoryDependency>;
   useFactory: (...args: unknown[]) =>
-    | BullMqMessagingModuleOptions
-    | Promise<BullMqMessagingModuleOptions>;
+    | RabbitMqMessagingModuleOptions
+    | Promise<RabbitMqMessagingModuleOptions>;
 }

@@ -1,6 +1,11 @@
 import { type DynamicModule } from '@nestjs/common';
 import { ConfigModule, registerAs } from '@nestjs/config';
-import { readScrapeMessagingConfig, type ScrapeMessagingConfig } from '@org/domain';
+import {
+  parseOptionalBooleanEnv,
+  readBooleanEnv,
+  readScrapeMessagingConfig,
+  type ScrapeMessagingConfig,
+} from '@org/domain';
 import { plainToInstance, Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
@@ -42,8 +47,9 @@ export interface ScraperFetchConfig {
   userAgents: string[];
 }
 
-export interface ScraperRedisConfig {
+export interface ScraperRabbitMqConfig {
   url?: string;
+  jobQueueDeduplicationEnabled: boolean;
 }
 
 class EnvironmentVariables {
@@ -75,17 +81,7 @@ class EnvironmentVariables {
 
   @IsBoolean()
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') {
-      return undefined;
-    }
-
-    if (typeof value === 'boolean') {
-      return value;
-    }
-
-    return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
-  })
+  @Transform(({ value }) => parseOptionalBooleanEnv(value))
   S3_FORCE_PATH_STYLE: boolean = true;
 
   @IsString()
@@ -161,7 +157,12 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   @Transform(({ value }) => (value?.trim() === '' ? undefined : value))
-  REDIS_URL?: string;
+  RABBITMQ_URL?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  @Transform(({ value }) => parseOptionalBooleanEnv(value))
+  RABBITMQ_JOB_QUEUE_DEDUPLICATION_ENABLED: boolean = false;
 }
 
 function validateEnvironmentVariables(
@@ -195,7 +196,10 @@ function validateEnvironmentVariables(
     SCRAPER_MIN_REQUEST_INTERVAL_MS: String(validatedConfig.SCRAPER_MIN_REQUEST_INTERVAL_MS),
     SCRAPER_BASE_RETRY_DELAY_MS: String(validatedConfig.SCRAPER_BASE_RETRY_DELAY_MS),
     SCRAPER_USER_AGENTS: validatedConfig.SCRAPER_USER_AGENTS,
-    REDIS_URL: validatedConfig.REDIS_URL,
+    RABBITMQ_URL: validatedConfig.RABBITMQ_URL,
+    RABBITMQ_JOB_QUEUE_DEDUPLICATION_ENABLED: String(
+      validatedConfig.RABBITMQ_JOB_QUEUE_DEDUPLICATION_ENABLED,
+    ),
   };
 }
 
@@ -236,9 +240,13 @@ function readFetchConfig(): ScraperFetchConfig {
   };
 }
 
-function readRedisConfig(): ScraperRedisConfig {
+function readRabbitMqConfig(): ScraperRabbitMqConfig {
   return {
-    url: process.env.REDIS_URL || undefined,
+    url: process.env.RABBITMQ_URL || undefined,
+    jobQueueDeduplicationEnabled: readBooleanEnv(
+      process.env.RABBITMQ_JOB_QUEUE_DEDUPLICATION_ENABLED,
+      false,
+    ),
   };
 }
 
@@ -262,9 +270,9 @@ export const scraperFetchConfig = registerAs(
   (): ScraperFetchConfig => readFetchConfig(),
 );
 
-export const scraperRedisConfig = registerAs(
-  `${APP_CONFIG_NAMESPACE}.redis`,
-  (): ScraperRedisConfig => readRedisConfig(),
+export const scraperRabbitMqConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.rabbitMq`,
+  (): ScraperRabbitMqConfig => readRabbitMqConfig(),
 );
 
 export const scraperMessagingBindings = readMessagingConfig();
@@ -282,14 +290,6 @@ function parseUserAgents(value: string | undefined): string[] {
   return parsedUserAgents;
 }
 
-function readBooleanEnv(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value === '') {
-    return fallback;
-  }
-
-  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
-}
-
 export const scraperConfigModule: Promise<DynamicModule> = ConfigModule.forRoot({
   isGlobal: true,
   cache: true,
@@ -299,6 +299,6 @@ export const scraperConfigModule: Promise<DynamicModule> = ConfigModule.forRoot(
     scraperStorageConfig,
     scraperMessagingConfig,
     scraperFetchConfig,
-    scraperRedisConfig,
+    scraperRabbitMqConfig,
   ],
 });

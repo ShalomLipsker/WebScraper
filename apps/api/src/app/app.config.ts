@@ -1,6 +1,11 @@
 import { type DynamicModule } from '@nestjs/common';
 import { ConfigModule, registerAs } from '@nestjs/config';
-import { readScrapeMessagingConfig, type ScrapeMessagingConfig } from '@org/domain';
+import {
+  readBooleanEnv,
+  readScrapeMessagingConfig,
+  type ScrapeMessagingConfig,
+  parseOptionalBooleanEnv,
+} from '@org/domain';
 import { plainToInstance, Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
@@ -94,17 +99,7 @@ class EnvironmentVariables {
 
   @IsBoolean()
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === undefined || value === null || value === '') {
-      return undefined;
-    }
-
-    if (typeof value === 'boolean') {
-      return value;
-    }
-
-    return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
-  })
+  @Transform(({ value }) => parseOptionalBooleanEnv(value))
   S3_FORCE_PATH_STYLE: boolean = true;
 
   @IsString()
@@ -227,11 +222,3 @@ export const apiConfigModule: Promise<DynamicModule> = ConfigModule.forRoot({
     apiStorageConfig,
   ],
 });
-
-function readBooleanEnv(value: string | undefined, fallback: boolean): boolean {
-  if (value === undefined || value === '') {
-    return fallback;
-  }
-
-  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
-}

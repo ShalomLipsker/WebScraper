@@ -32,7 +32,7 @@ export class ScrapeJobStatusUpdatesService
           return { status: 'IGNORED' };
         }
 
-        await this.jobRepository.updateJobStatus(
+        const updateResult = await this.jobRepository.updateJobStatus(
           message.data.jobId,
           message.data.status,
           {
@@ -41,9 +41,34 @@ export class ScrapeJobStatusUpdatesService
           },
         );
 
-        this.logger.log(
-          `applied scrape status update ${message.data.status} for job ${message.data.jobId}`,
-        );
+        switch (updateResult.outcome) {
+          case 'updated':
+            this.logger.log({
+              event: 'applied scrape status update',
+              jobId: message.data.jobId,
+              nextStatus: message.data.status,
+              outcome: updateResult.outcome,
+              persistedStatus: updateResult.job.status,
+            });
+            break;
+          case 'blocked':
+            this.logger.warn({
+              event: 'ignored scrape status update',
+              jobId: message.data.jobId,
+              nextStatus: message.data.status,
+              outcome: updateResult.outcome,
+              persistedStatus: updateResult.job.status,
+            });
+            break;
+          case 'not_found':
+            this.logger.warn({
+              event: 'ignored scrape status update',
+              jobId: message.data.jobId,
+              nextStatus: message.data.status,
+              outcome: updateResult.outcome,
+            });
+            break;
+        }
 
         return { status: 'UPDATED' };
       },
