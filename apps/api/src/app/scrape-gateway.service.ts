@@ -1,4 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  GatewayTimeoutException,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
 import type { Readable } from 'node:stream';
@@ -8,9 +12,12 @@ import {
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
 } from '@org/domain';
-import { resolveStorageLocation, S3StorageService } from '@org/storage';
-import { firstValueFrom } from 'rxjs';
-import { apiMessagingConfig, apiStorageConfig } from './app.config';
+import {
+  resolveStorageLocation,
+  S3StorageService,
+} from '@org/storage';
+import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
+import { apiJobManagerConfig, apiMessagingConfig, apiStorageConfig } from './app.config';
 import { JOB_MANAGER_CLIENT } from './job-manager-client';
 
 export interface CompletedScrapeJobAccessView extends ScrapeJobStatusView {
@@ -30,6 +37,8 @@ export type CompletedScrapeJobDeliveryMode = 'status' | 'stream' | 'presigned-ur
 @Injectable()
 export class ScrapeGatewayService {
   constructor(
+    @Inject(apiJobManagerConfig.KEY)
+    private readonly jobManagerConfig: ConfigType<typeof apiJobManagerConfig>,
     @Inject(apiMessagingConfig.KEY)
     private readonly messagingConfig: ConfigType<typeof apiMessagingConfig>,
     @Inject(apiStorageConfig.KEY)
@@ -42,20 +51,16 @@ export class ScrapeGatewayService {
   submitJob(
     payload: SubmitScrapeJobPayload,
   ): Promise<SubmitScrapeJobAcknowledgement> {
-    return firstValueFrom(
-      this.jobManagerClient.send<SubmitScrapeJobAcknowledgement>(
-        this.messagingConfig.jobPattern,
-        payload,
-      ),
+    return this.sendToJobManager<SubmitScrapeJobAcknowledgement>(
+      this.messagingConfig.jobPattern,
+      payload,
     );
   }
 
   getJobStatus(jobId: string): Promise<GetScrapeJobResult> {
-    return firstValueFrom(
-      this.jobManagerClient.send<ScrapeJobStatusView | null>(
-        this.messagingConfig.statusPattern,
-        { jobId },
-      ),
+    return this.sendToJobManager<ScrapeJobStatusView | null>(
+      this.messagingConfig.statusPattern,
+      { jobId },
     );
   }
 
@@ -96,4 +101,31 @@ export class ScrapeGatewayService {
       expiresAt: presignedObject.expiresAt,
     };
   }
+
+  private sendToJobManager<TResult>(pattern: string, payload: unknown): Promise<TResult> {
+    return firstValueFrom(
+      this.jobManagerClient.send<TResult>(pattern, payload).pipe(
+        timeout(this.jobManagerConfig.requestTimeoutMs),
+        catchError((error: unknown) => throwError(() => this.mapJobManagerError(error))),
+      ),
+    );
+  }
+
+  private mapJobManagerError(error: unknown): Error {
+    if (isTimeoutError(error)) {
+      return new GatewayTimeoutException(
+        `Job manager did not respond within ${this.jobManagerConfig.requestTimeoutMs}ms`,
+      );
+    }
+
+    return new ServiceUnavailableException('Job manager is unavailable');
+  }
+
+function isTimeoutError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'name' in error
+    && error.name === 'TimeoutError',
+  );
 }

@@ -26,6 +26,7 @@ export interface ApiServiceConfig {
 export interface ApiJobManagerConfig {
   host: string;
   tcpPort: number;
+  requestTimeoutMs: number;
 }
 
 export interface ApiStorageConfig {
@@ -66,6 +67,12 @@ class EnvironmentVariables {
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))
   JOB_MANAGER_TCP_PORT: number = 4001;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @Transform(({ value }) => (value ? Number(value) : undefined))
+  JOB_MANAGER_RPC_TIMEOUT_MS: number = 5000;
 
   @IsString()
   @IsOptional()
@@ -141,6 +148,7 @@ function validateEnvironmentVariables(
     PORT: String(validatedConfig.PORT),
     JOB_MANAGER_HOST: validatedConfig.JOB_MANAGER_HOST,
     JOB_MANAGER_TCP_PORT: String(validatedConfig.JOB_MANAGER_TCP_PORT),
+    JOB_MANAGER_RPC_TIMEOUT_MS: String(validatedConfig.JOB_MANAGER_RPC_TIMEOUT_MS),
     SCRAPE_JOB_QUEUE_NAME: validatedConfig.SCRAPE_JOB_QUEUE_NAME,
     SCRAPE_STATUS_QUEUE_NAME: validatedConfig.SCRAPE_STATUS_QUEUE_NAME,
     SCRAPE_JOB_PATTERN: validatedConfig.SCRAPE_JOB_PATTERN,
@@ -170,6 +178,7 @@ function readJobManagerConfig(): ApiJobManagerConfig {
   return {
     host: process.env.JOB_MANAGER_HOST || '127.0.0.1',
     tcpPort: Number(process.env.JOB_MANAGER_TCP_PORT),
+    requestTimeoutMs: Number(process.env.JOB_MANAGER_RPC_TIMEOUT_MS),
   };
 }
 

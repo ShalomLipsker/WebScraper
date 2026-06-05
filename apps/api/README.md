@@ -20,6 +20,7 @@ Default local port: `3000`
 ## Dependencies
 
 - `job-manager` TCP transport on `JOB_MANAGER_HOST:JOB_MANAGER_TCP_PORT`
+- API-side RPC deadline via `JOB_MANAGER_RPC_TIMEOUT_MS` (default `5000`)
 - S3-compatible storage for completed result retrieval
 
 ## Related files
