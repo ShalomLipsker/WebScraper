@@ -15,6 +15,7 @@ export type QueueMessageHeaderValue = string | number | boolean;
 export interface QueuePublishOptions {
   attempts?: number;
   backoff?: QueueBackoffPolicy;
+  correlationId?: string;
   headers?: Record<string, QueueMessageHeaderValue>;
 }
 
@@ -39,6 +40,7 @@ export interface PublishedQueueMessage<TPayload>
   extends QueueMessage<TPayload> {
   queueName: string;
   attempts: number;
+  correlationId?: string;
 }
 
 export interface QueueHandlerMessage<TPayload> {
@@ -48,6 +50,8 @@ export interface QueueHandlerMessage<TPayload> {
   attemptsMade: number;
   maxAttempts: number;
   timestamp: number;
+  correlationId?: string;
+  headers: Record<string, QueueMessageHeaderValue>;
 }
 
 export type MessageHandler<TPayload, TResult = void> = (
@@ -91,7 +95,9 @@ export interface RabbitMqMessagingModuleOptions {
 export type ResolvedRabbitMqMessagingModuleOptions =
   Required<Omit<RabbitMqMessagingModuleOptions, 'defaultPublishOptions' | 'queueDeduplication'>> & {
     queueDeduplication: Required<RabbitMqQueueDeduplicationOptions>;
-    defaultPublishOptions: Required<QueuePublishOptions>;
+    defaultPublishOptions: Required<Omit<QueuePublishOptions, 'correlationId'>> & {
+      correlationId?: string;
+    };
   }
 
 export interface MessagingModuleAsyncOptions {

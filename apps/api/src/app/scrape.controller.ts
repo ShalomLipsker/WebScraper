@@ -9,6 +9,7 @@ import {
   NotFoundException,
   Param,
   Post,
+  Req,
   Res,
   StreamableFile,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import type {
   ScrapeJobStatusView,
   SubmitScrapeJobAcknowledgement,
 } from '@org/domain';
+import { PinoLoggerService, getRequestId } from '@org/logger';
 import { SubmitScrapeRequestDto } from './dto/submit-scrape-request.dto';
 import {
   type CompletedScrapeJobAccessView,
@@ -24,35 +26,78 @@ import {
 
 @Controller('scrape')
 export class ScrapeController {
-  constructor(private readonly scrapeGatewayService: ScrapeGatewayService) {}
+  constructor(
+    private readonly scrapeGatewayService: ScrapeGatewayService,
+    private readonly logger: PinoLoggerService,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
-  submit(
+  async submit(
+    @Req() request: RequestLike,
     @Body() payload: SubmitScrapeRequestDto,
   ): Promise<SubmitScrapeJobAcknowledgement> {
-    return this.scrapeGatewayService.submitJob(payload);
+    const correlationId = getRequestId(request);
+    const acknowledgement = await this.scrapeGatewayService.submitJob({
+      ...payload,
+      correlationId,
+    });
+
+    this.logger.log({
+      event: 'accepted scrape submission request',
+      requestId: correlationId,
+      correlationId,
+      jobId: acknowledgement.jobId,
+      status: acknowledgement.status,
+      sourceUrl: acknowledgement.url,
+      outcome: 'accepted',
+    });
+
+    return acknowledgement;
   }
 
   @Get(':jobId/status')
   async getJobStatus(
+    @Req() request: RequestLike,
     @Param('jobId') jobId: string,
   ): Promise<ScrapeJobStatusView> {
-    return this.getExistingJobStatus(jobId);
+    const requestId = getRequestId(request);
+    const job = await this.getExistingJobStatus(jobId, requestId);
+
+    this.logger.log({
+      event: 'loaded scrape job status',
+      requestId,
+      jobId,
+      status: job.status,
+      outcome: 'loaded',
+    });
+
+    return job;
   }
 
   @Get(':jobId/content')
   async getScrapedHtml(
+    @Req() request: RequestLike,
     @Param('jobId') jobId: string,
     @Res({ passthrough: true }) response: HeaderWritableResponse,
   ): Promise<StreamableFile> {
-    const job = await this.getCompletedJobStatus(jobId);
+    const requestId = getRequestId(request);
+    const job = await this.getCompletedJobStatus(jobId, requestId);
     const object = await this.scrapeGatewayService.getCompletedJobStream(job);
 
     response.setHeader('Cache-Control', 'no-store');
     if (object.contentLength !== undefined) {
       response.setHeader('Content-Length', String(object.contentLength));
     }
+
+    this.logger.log({
+      event: 'streamed completed scrape result',
+      requestId,
+      jobId,
+      contentLength: object.contentLength,
+      contentType: object.contentType,
+      outcome: 'streamed',
+    });
 
     return new StreamableFile(object.body, {
       disposition: `inline; filename="${job.jobId}.html"`,
@@ -62,15 +107,30 @@ export class ScrapeController {
 
   @Get(':jobId/content-url')
   async getScrapedHtmlUrl(
+    @Req() request: RequestLike,
     @Param('jobId') jobId: string,
   ): Promise<CompletedScrapeJobAccessView> {
-    const job = await this.getCompletedJobStatus(jobId);
+    const requestId = getRequestId(request);
+    const job = await this.getCompletedJobStatus(jobId, requestId);
 
-    return this.scrapeGatewayService.getCompletedJobPresignedUrl(job);
+    const result = await this.scrapeGatewayService.getCompletedJobPresignedUrl(job);
+
+    this.logger.log({
+      event: 'created completed scrape presigned url',
+      requestId,
+      jobId,
+      expiresAt: result.expiresAt,
+      outcome: 'created',
+    });
+
+    return result;
   }
 
-  private async getExistingJobStatus(jobId: string): Promise<ScrapeJobStatusView> {
-    const job = await this.scrapeGatewayService.getJobStatus(jobId);
+  private async getExistingJobStatus(
+    jobId: string,
+    correlationId?: string,
+  ): Promise<ScrapeJobStatusView> {
+    const job = await this.scrapeGatewayService.getJobStatus(jobId, correlationId);
 
     if (!job) {
       throw new NotFoundException(`Job ${jobId} was not found`);
@@ -79,8 +139,11 @@ export class ScrapeController {
     return job;
   }
 
-  private async getCompletedJobStatus(jobId: string): Promise<ScrapeJobStatusView> {
-    const job = await this.getExistingJobStatus(jobId);
+  private async getCompletedJobStatus(
+    jobId: string,
+    correlationId?: string,
+  ): Promise<ScrapeJobStatusView> {
+    const job = await this.getExistingJobStatus(jobId, correlationId);
 
     if (job.status !== 'COMPLETED') {
       throw new ConflictException(
@@ -100,4 +163,9 @@ export class ScrapeController {
 
 interface HeaderWritableResponse {
   setHeader(name: string, value: string): void;
+}
+
+interface RequestLike {
+  id?: unknown;
+  headers?: Record<string, string | string[] | undefined>;
 }

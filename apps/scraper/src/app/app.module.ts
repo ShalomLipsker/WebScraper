@@ -5,7 +5,7 @@ import {
   RabbitMqMessageQueue,
   resolveRabbitMqMessagingOptions,
 } from '@org/messaging';
-import { StructuredLoggerModule } from '@org/logger';
+import { PinoLoggerService, StructuredLoggerModule } from '@org/logger';
 import { StorageModule } from '@org/storage';
 import {
   scraperMessagingConfig,
@@ -69,9 +69,10 @@ import { ScrapeWorkerService } from './scrape-worker.service';
     {
       provide: SCRAPE_STATUS_QUEUE_TOKEN,
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig, rabbitMqConfig] = args as [
+        const [messagingConfig, rabbitMqConfig, logger] = args as [
           ConfigType<typeof scraperMessagingConfig>,
           ConfigType<typeof scraperRabbitMqConfig>,
+          PinoLoggerService,
         ];
 
         return new RabbitMqMessageQueue(
@@ -80,9 +81,10 @@ import { ScrapeWorkerService } from './scrape-worker.service';
             queueName: messagingConfig.statusQueueName,
             defaultJobName: messagingConfig.statusPattern,
           }),
+          logger,
         );
       },
-      inject: [scraperMessagingConfig.KEY, scraperRabbitMqConfig.KEY],
+      inject: [scraperMessagingConfig.KEY, scraperRabbitMqConfig.KEY, PinoLoggerService],
     },
     ScrapeEngineService,
     ScrapeWorkerService,

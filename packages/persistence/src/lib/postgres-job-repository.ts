@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type {
   CreateJobInput,
   IJobRepository,
@@ -7,6 +7,7 @@ import type {
   JobStatus,
   UpdateJobStatusResult,
 } from '@org/domain';
+import { PinoLoggerService } from '@org/logger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -24,6 +25,8 @@ export class PostgresJobRepository implements IJobRepository {
     private readonly jobsRepository: Repository<JobEntity>,
     @Inject(POSTGRES_PERSISTENCE_OPTIONS_TOKEN)
     private readonly options: PostgresPersistenceModuleOptions,
+    @Optional()
+    private readonly logger?: PinoLoggerService,
   ) {}
 
   async getJob(id: string): Promise<JobMetadata | null> {
@@ -40,6 +43,13 @@ export class PostgresJobRepository implements IJobRepository {
       .limit(limit)
       .getMany();
 
+    if (jobs.length > 0) {
+      this.logger?.log({
+        event: 'loaded expired jobs',
+        jobCount: jobs.length,
+      });
+    }
+
     return jobs.map((job) => toJobMetadata(job));
   }
 
@@ -54,6 +64,13 @@ export class PostgresJobRepository implements IJobRepository {
     });
 
     const savedJob = await this.jobsRepository.save(entity);
+
+    this.logger?.log({
+      event: 'created job record',
+      jobId: savedJob.id,
+      status: savedJob.status,
+      outcome: 'created',
+    });
 
     return toJobMetadata(savedJob);
   }
@@ -78,14 +95,30 @@ export class PostgresJobRepository implements IJobRepository {
       .execute();
 
     if (insertResult.raw.length > 0) {
+      const createdJob = toJobMetadata(insertResult.raw[0] as JobEntity);
+
+      this.logger?.log({
+        event: 'created job record',
+        jobId: createdJob.id,
+        status: createdJob.status,
+        outcome: 'created',
+      });
+
       return {
-        job: toJobMetadata(insertResult.raw[0] as JobEntity),
+        job: createdJob,
         alreadyExisted: false,
       };
     }
 
     const existingJob = await this.jobsRepository.findOneOrFail({
       where: { id: job.id },
+    });
+
+    this.logger?.log({
+      event: 'reused existing job record',
+      jobId: existingJob.id,
+      status: existingJob.status,
+      outcome: 'already_exists',
     });
 
     return {
@@ -95,7 +128,7 @@ export class PostgresJobRepository implements IJobRepository {
   }
 
   async deleteJob(id: string): Promise<boolean> {
-    return this.jobsRepository.manager.transaction(async (entityManager) => {
+    const deleted = await this.jobsRepository.manager.transaction(async (entityManager) => {
       const jobsRepository = entityManager.getRepository(JobEntity);
       const leasesRepository = entityManager.getRepository(JobMaintenanceLeaseEntity);
 
@@ -107,6 +140,14 @@ export class PostgresJobRepository implements IJobRepository {
 
       return (deleteResult.affected ?? 0) > 0;
     });
+
+    this.logger?.log({
+      event: deleted ? 'deleted job record' : 'job record already missing',
+      jobId: id,
+      outcome: deleted ? 'deleted' : 'missing',
+    });
+
+    return deleted;
   }
 
   async updateJobStatus(
@@ -136,20 +177,44 @@ export class PostgresJobRepository implements IJobRepository {
       .execute();
 
     if (updateResult.raw.length > 0) {
+      const updatedJob = toJobMetadata(updateResult.raw[0] as JobEntity);
+
+      this.logger?.log({
+        event: 'updated job status',
+        jobId: updatedJob.id,
+        status,
+        outcome: 'updated',
+      });
+
       return {
         outcome: 'updated',
-        job: toJobMetadata(updateResult.raw[0] as JobEntity),
+        job: updatedJob,
       };
     }
 
     const existingJob = await this.jobsRepository.findOne({ where: { id } });
 
     if (!existingJob) {
+      this.logger?.warn({
+        event: 'failed to update missing job status',
+        jobId: id,
+        status,
+        outcome: 'not_found',
+      });
+
       return {
         outcome: 'not_found',
         job: null,
       };
     }
+
+    this.logger?.warn({
+      event: 'blocked job status transition',
+      jobId: id,
+      status,
+      persistedStatus: existingJob.status,
+      outcome: 'blocked',
+    });
 
     return {
       outcome: 'blocked',

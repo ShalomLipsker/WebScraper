@@ -279,6 +279,9 @@ importers:
       '@org/domain':
         specifier: workspace:*
         version: link:../domain
+      '@org/logger':
+        specifier: workspace:*
+        version: link:../logger
       pg:
         specifier: ^8.16.3
         version: 8.21.0

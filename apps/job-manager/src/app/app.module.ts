@@ -7,7 +7,7 @@ import {
   resolveRabbitMqMessagingOptions,
 } from '@org/messaging';
 import { PersistenceModule } from '@org/persistence';
-import { StructuredLoggerModule } from '@org/logger';
+import { PinoLoggerService, StructuredLoggerModule } from '@org/logger';
 import { StorageModule } from '@org/storage';
 import {
   jobManagerConfigModule,
@@ -91,9 +91,10 @@ import { ScrapeJobsService } from './scrape-jobs.service';
     {
       provide: SCRAPE_STATUS_QUEUE_TOKEN,
       useFactory: (...args: unknown[]) => {
-        const [messagingConfig, rabbitMqConfig] = args as [
+        const [messagingConfig, rabbitMqConfig, logger] = args as [
           ConfigType<typeof jobManagerMessagingConfig>,
           ConfigType<typeof jobManagerRabbitMqConfig>,
+          PinoLoggerService,
         ];
 
         return new RabbitMqMessageQueue(
@@ -102,9 +103,10 @@ import { ScrapeJobsService } from './scrape-jobs.service';
             queueName: messagingConfig.statusQueueName,
             defaultJobName: messagingConfig.statusPattern,
           }),
+          logger,
         );
       },
-      inject: [jobManagerMessagingConfig.KEY, jobManagerRabbitMqConfig.KEY],
+      inject: [jobManagerMessagingConfig.KEY, jobManagerRabbitMqConfig.KEY, PinoLoggerService],
     },
     ScrapeJobsService,
     ScrapeJobSubmissionOutboxService,

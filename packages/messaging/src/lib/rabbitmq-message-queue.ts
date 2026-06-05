@@ -6,7 +6,11 @@ import {
   Optional,
   type OnModuleDestroy,
 } from '@nestjs/common';
-import { PinoLoggerService } from '@org/logger';
+import {
+  getDurationMs,
+  getErrorLogFields,
+  PinoLoggerService,
+} from '@org/logger';
 import {
   type Channel,
   type ChannelModel,
@@ -18,6 +22,7 @@ import * as amqplib from 'amqplib';
 
 import {
   DEFAULT_JOB_ATTEMPTS,
+  RABBITMQ_CORRELATION_ID_HEADER,
   RABBITMQ_MESSAGING_OPTIONS_TOKEN,
 } from './messaging.constants.js';
 import type {
@@ -51,11 +56,14 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
     message: QueueMessage<TPayload>,
     options: QueuePublishOptions = {},
   ): Promise<PublishedQueueMessage<TPayload>> {
+    const startedAt = Date.now();
     const channel = await this.getPublishChannel();
     const resolvedName = message.name ?? this.options.defaultJobName;
     const resolvedAttempts =
       options.attempts ?? this.options.defaultPublishOptions.attempts ?? DEFAULT_JOB_ATTEMPTS;
     const resolvedBackoff = options.backoff ?? this.options.defaultPublishOptions.backoff;
+    const correlationId = options.correlationId
+      ?? getHeaderStringValue(options.headers, RABBITMQ_CORRELATION_ID_HEADER);
     const payload = Buffer.from(JSON.stringify(message.data));
 
     await assertTopology(channel, this.options, resolvedName);
@@ -70,6 +78,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
         0,
         resolvedAttempts,
         resolvedBackoff?.delayMs,
+        correlationId,
         undefined,
         options.headers,
       ),
@@ -83,6 +92,8 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       exchange: this.options.exchange,
       attempts: resolvedAttempts,
       backoffDelayMs: resolvedBackoff?.delayMs ?? 0,
+      correlationId,
+      durationMs: getDurationMs(startedAt),
     });
 
     return {
@@ -90,6 +101,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       name: resolvedName,
       queueName: this.options.queueName,
       attempts: resolvedAttempts,
+      correlationId,
     };
   }
 
@@ -97,6 +109,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
     handler: MessageHandler<TPayload, TResult>,
     options: MessageWorkerRegistrationOptions = {},
   ): Promise<IMessageWorker> {
+    const startedAt = Date.now();
     this.logger?.log({
       event: 'registering RabbitMQ worker',
       queueName: this.options.queueName,
@@ -135,6 +148,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       queueName: this.options.queueName,
       consumerTag: consumeResult.consumerTag,
       concurrency: resolvedConcurrency,
+      durationMs: getDurationMs(startedAt),
     });
 
     return {
@@ -171,52 +185,49 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
     rawMessage: ConsumeMessage,
     handler: MessageHandler<TPayload, TResult>,
   ): Promise<void> {
+    const startedAt = Date.now();
     const decoded = decodeMessage<TPayload>(rawMessage, this.options.defaultPublishOptions.attempts);
-
-    this.logger?.log({
-      event: 'processing RabbitMQ message',
+    const loggerContext = {
+      correlationId: decoded.correlationId,
       messageId: decoded.id,
       messageName: decoded.name,
       queueName: this.options.queueName,
       attempt: decoded.attemptsMade + 1,
       maxAttempts: decoded.maxAttempts,
+    };
+
+    this.logger?.log({
+      ...loggerContext,
+      event: 'processing RabbitMQ message',
     });
 
     try {
       await handler(decoded);
       channel.ack(rawMessage);
       this.logger?.log({
+        ...loggerContext,
         event: 'acknowledged RabbitMQ message',
-        messageId: decoded.id,
-        messageName: decoded.name,
-        queueName: this.options.queueName,
-        attempt: decoded.attemptsMade + 1,
+        durationMs: getDurationMs(startedAt),
       });
     } catch (error: unknown) {
       if (decoded.attemptsMade + 1 >= decoded.maxAttempts) {
         if (shouldDeadLetterOnExhaustion(error)) {
           // Route exhausted poison messages to the terminal dead-letter queue.
           this.logger?.error({
+            ...loggerContext,
             event: 'dead-lettering exhausted RabbitMQ message',
-            messageId: decoded.id,
-            messageName: decoded.name,
-            queueName: this.options.queueName,
-            attempt: decoded.attemptsMade + 1,
-            maxAttempts: decoded.maxAttempts,
-            errorMessage: toErrorMessage(error),
+            durationMs: getDurationMs(startedAt),
+            ...getErrorLogFields(error),
           });
           channel.nack(rawMessage, false, false);
           return;
         }
 
         this.logger?.error({
+          ...loggerContext,
           event: 'acknowledging exhausted RabbitMQ message',
-          messageId: decoded.id,
-          messageName: decoded.name,
-          queueName: this.options.queueName,
-          attempt: decoded.attemptsMade + 1,
-          maxAttempts: decoded.maxAttempts,
-          errorMessage: toErrorMessage(error),
+          durationMs: getDurationMs(startedAt),
+          ...getErrorLogFields(error),
         });
         channel.ack(rawMessage);
         return;
@@ -227,6 +238,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
         channel.ack(rawMessage);
         this.logger?.warn({
           event: 'requeued RabbitMQ message for retry',
+          correlationId: decoded.correlationId,
           messageId: decoded.id,
           messageName: decoded.name,
           queueName: this.options.queueName,
@@ -234,15 +246,14 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
           nextAttempt: decoded.attemptsMade + 2,
           maxAttempts: decoded.maxAttempts,
           backoffDelayMs: decoded.backoffDelayMs,
-          errorMessage: toErrorMessage(error),
+          durationMs: getDurationMs(startedAt),
+          ...getErrorLogFields(error),
         });
       } catch {
         this.logger?.error({
+          ...loggerContext,
           event: 'failed to requeue RabbitMQ message',
-          messageId: decoded.id,
-          messageName: decoded.name,
-          queueName: this.options.queueName,
-          retryQueueName: this.options.retryQueueName,
+          durationMs: getDurationMs(startedAt),
         });
         channel.nack(rawMessage, false, true);
       }
@@ -260,6 +271,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       maxAttempts: number;
       timestamp: number;
       backoffDelayMs: number;
+      correlationId?: string;
     },
   ): Promise<void> {
     this.logger?.warn({
@@ -271,6 +283,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       nextAttempt: decoded.attemptsMade + 2,
       maxAttempts: decoded.maxAttempts,
       backoffDelayMs: decoded.backoffDelayMs,
+      correlationId: decoded.correlationId,
     });
 
     await channel.sendToQueue(
@@ -282,6 +295,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
         decoded.attemptsMade + 1,
         decoded.maxAttempts,
         decoded.backoffDelayMs,
+        decoded.correlationId,
         String(decoded.backoffDelayMs),
         extractRetryHeaders(rawMessage.properties.headers),
       ),
@@ -292,6 +306,8 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
     if (this.publishChannel) {
       return this.publishChannel;
     }
+
+    const startedAt = Date.now();
 
     this.logger?.log({
       event: 'opening RabbitMQ publisher connection',
@@ -307,6 +323,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       event: 'opened RabbitMQ publisher channel',
       queueName: this.options.queueName,
       exchange: this.options.exchange,
+      durationMs: getDurationMs(startedAt),
     });
 
     return this.publishChannel;
@@ -383,6 +400,7 @@ function createPublishProperties(
   attemptsMade: number,
   maxAttempts: number,
   backoffDelayMs?: number,
+  correlationId?: string,
   expiration?: string,
   extraHeaders: Record<string, QueueMessageHeaderValue> = {},
 ): Options.Publish {
@@ -398,6 +416,9 @@ function createPublishProperties(
       attemptsMade,
       maxAttempts,
       backoffDelayMs: backoffDelayMs ?? 0,
+      ...(correlationId
+        ? { [RABBITMQ_CORRELATION_ID_HEADER]: correlationId }
+        : {}),
     },
   };
 }
@@ -442,8 +463,15 @@ function decodeMessage<TPayload>(
   maxAttempts: number;
   timestamp: number;
   backoffDelayMs: number;
+  correlationId?: string;
+  headers: Record<string, QueueMessageHeaderValue>;
 } {
   const headers = message.properties.headers ?? {};
+  const normalizedHeaders = extractRetryHeaders(headers);
+  const correlationId = getHeaderStringValue(
+    headers,
+    RABBITMQ_CORRELATION_ID_HEADER,
+  );
 
   return {
     id: message.properties.messageId ?? '',
@@ -453,7 +481,23 @@ function decodeMessage<TPayload>(
     maxAttempts: Number(headers.maxAttempts ?? fallbackMaxAttempts ?? DEFAULT_JOB_ATTEMPTS),
     timestamp: message.properties.timestamp ?? Date.now(),
     backoffDelayMs: Number(headers.backoffDelayMs ?? 0),
+    correlationId,
+    headers: correlationId
+      ? {
+          ...normalizedHeaders,
+          [RABBITMQ_CORRELATION_ID_HEADER]: correlationId,
+        }
+      : normalizedHeaders,
   };
+}
+
+function getHeaderStringValue(
+  headers: Record<string, unknown> | undefined,
+  headerName: string,
+): string | undefined {
+  const value = headers?.[headerName];
+
+  return typeof value === 'string' ? value : undefined;
 }
 
 function shouldDeadLetterOnExhaustion(error: unknown): boolean {
@@ -463,14 +507,6 @@ function shouldDeadLetterOnExhaustion(error: unknown): boolean {
     && 'deadLetterOnExhaustion' in error
     && (error as { deadLetterOnExhaustion?: boolean }).deadLetterOnExhaustion,
   );
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return 'Unknown RabbitMQ processing failure';
 }
 
 function publishWithConfirm(

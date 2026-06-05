@@ -104,6 +104,7 @@ function resolvePublishOptions(
   return {
     attempts: options?.attempts ?? DEFAULT_JOB_ATTEMPTS,
     backoff: options?.backoff ?? defaultBackoff,
+    correlationId: options?.correlationId,
     headers: options?.headers ?? {},
   };
 }

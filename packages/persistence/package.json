@@ -22,8 +22,9 @@
     "@nestjs/common": "^11.1.24",
     "@nestjs/typeorm": "^11.0.0",
     "@org/domain": "workspace:*",
+    "@org/logger": "workspace:*",
     "pg": "^8.16.3",
-    "tslib": "^2.3.0"
-    ,"typeorm": "^0.3.26"
+    "tslib": "^2.3.0",
+    "typeorm": "^0.3.26"
   }
 }

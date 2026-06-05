@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { JobMetadata } from '@org/domain';
+import { PinoLoggerService } from '@org/logger';
 import { DataSource } from 'typeorm';
 
 import {
@@ -21,11 +22,21 @@ export class PostgresJobSubmissionStore implements IJobSubmissionStore {
     private readonly dataSource: DataSource,
     @Inject(POSTGRES_PERSISTENCE_OPTIONS_TOKEN)
     private readonly options: PostgresPersistenceModuleOptions,
+    @Optional()
+    private readonly logger?: PinoLoggerService,
   ) {}
 
   async createJobSubmissionIfNotExists<TPayload>(
     input: CreateJobSubmissionInput<TPayload>,
   ): Promise<{ job: JobMetadata; alreadyExisted: boolean }> {
+    const loggerContext = {
+      jobId: input.job.id,
+      messageId: input.message.id,
+      messageName: input.message.name,
+      queueName: input.queueName,
+      correlationId: getCorrelationIdFromPayload(input.message.data),
+    };
+
     return this.dataSource.transaction(async (entityManager) => {
       const jobsRepository = entityManager.getRepository(JobEntity);
       const outboxRepository = entityManager.getRepository(OutboxMessageEntity);
@@ -50,6 +61,12 @@ export class PostgresJobSubmissionStore implements IJobSubmissionStore {
           where: { id: input.job.id },
         });
 
+        this.logger?.log({
+          ...loggerContext,
+          event: 'reused existing job submission',
+          outcome: 'already_exists',
+        });
+
         return {
           job: toJobMetadata(existingJob),
           alreadyExisted: true,
@@ -70,6 +87,12 @@ export class PostgresJobSubmissionStore implements IJobSubmissionStore {
           lastError: null,
         }),
       );
+
+      this.logger?.log({
+        ...loggerContext,
+        event: 'created job submission and outbox message',
+        outcome: 'created',
+      });
 
       return {
         job: toJobMetadata(insertResult.raw[0] as JobEntity),
@@ -98,4 +121,14 @@ function toJobMetadata(job: JobEntity): JobMetadata {
     createdAt: new Date(job.createdAt),
     updatedAt: new Date(job.updatedAt),
   };
+}
+
+function getCorrelationIdFromPayload(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const correlationId = (payload as { correlationId?: unknown }).correlationId;
+
+  return typeof correlationId === 'string' ? correlationId : undefined;
 }

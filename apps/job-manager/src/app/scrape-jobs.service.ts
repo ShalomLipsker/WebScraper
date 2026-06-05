@@ -10,6 +10,7 @@ import type {
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
 } from '@org/domain';
+import { PinoLoggerService } from '@org/logger';
 import {
   InvalidScrapeProxyError,
   InvalidScrapeUrlError,
@@ -33,6 +34,7 @@ export class ScrapeJobsService {
     private readonly jobRepository: IJobRepository,
     @Inject(JOB_SUBMISSION_STORE_TOKEN)
     private readonly jobSubmissionStore: IJobSubmissionStore,
+    private readonly logger: PinoLoggerService,
   ) {}
 
   async submitJob(
@@ -56,11 +58,22 @@ export class ScrapeJobsService {
           name: this.messagingConfig.jobPattern,
           data: {
             url,
+            correlationId: payload.correlationId,
             ...(proxy ? { proxy } : {}),
           },
         },
       },
     );
+
+    this.logger.log({
+      event: alreadyExisted ? 'reused scrape job submission' : 'created scrape job submission',
+      correlationId: payload.correlationId,
+      jobId: job.id,
+      sourceUrl: job.url,
+      status: job.status,
+      usedProxy: Boolean(proxy),
+      outcome: alreadyExisted ? 'already_exists' : 'created',
+    });
 
     return createAcknowledgement(
       job.id,
@@ -73,6 +86,14 @@ export class ScrapeJobsService {
     payload: GetScrapeJobPayload,
   ): Promise<GetScrapeJobResult> {
     const job = await this.jobRepository.getJob(payload.jobId);
+
+    this.logger.log({
+      event: job ? 'loaded scrape job status' : 'missing scrape job status',
+      correlationId: payload.correlationId,
+      jobId: payload.jobId,
+      status: job?.status,
+      outcome: job ? 'loaded' : 'missing',
+    });
 
     if (!job) {
       return null;

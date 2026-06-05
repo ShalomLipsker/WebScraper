@@ -6,24 +6,48 @@ import type {
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
 } from '@org/domain';
+import { PinoLoggerService } from '@org/logger';
 import { jobManagerMessagingBindings } from './app.config';
 import { ScrapeJobsService } from './scrape-jobs.service';
 
 @Controller()
 export class ScrapeJobsController {
-  constructor(private readonly scrapeJobsService: ScrapeJobsService) {}
+  constructor(
+    private readonly scrapeJobsService: ScrapeJobsService,
+    private readonly logger: PinoLoggerService,
+  ) {}
 
   @MessagePattern(jobManagerMessagingBindings.jobPattern)
-  submitJob(
+  async submitJob(
     @Payload() payload: SubmitScrapeJobPayload,
   ): Promise<SubmitScrapeJobAcknowledgement> {
-    return this.scrapeJobsService.submitJob(payload);
+    const result = await this.scrapeJobsService.submitJob(payload);
+
+    this.logger.log({
+      event: 'received scrape job submission command',
+      correlationId: payload.correlationId,
+      jobId: result.jobId,
+      status: result.status,
+      outcome: 'accepted',
+    });
+
+    return result;
   }
 
   @MessagePattern(jobManagerMessagingBindings.statusPattern)
-  getJobStatus(
+  async getJobStatus(
     @Payload() payload: GetScrapeJobPayload,
   ): Promise<GetScrapeJobResult> {
-    return this.scrapeJobsService.getJobStatus(payload);
+    const result = await this.scrapeJobsService.getJobStatus(payload);
+
+    this.logger.log({
+      event: result ? 'loaded scrape job status command' : 'missing scrape job status command',
+      correlationId: payload.correlationId,
+      jobId: payload.jobId,
+      status: result?.status,
+      outcome: result ? 'loaded' : 'missing',
+    });
+
+    return result;
   }
 }

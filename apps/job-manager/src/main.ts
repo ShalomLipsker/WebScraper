@@ -31,10 +31,19 @@ async function bootstrap() {
 
   await loggerApp.startAllMicroservices();
   await loggerApp.listen(serviceConfig.http.port);
-  logger.log(`job-manager listening on http://localhost:${serviceConfig.http.port}`);
-  logger.log(
-    `job-manager TCP transport listening on ${transportConfig.host}:${transportConfig.tcpPort}`,
-  );
+  logger.log({
+    event: 'service listening',
+    service: 'job-manager',
+    port: serviceConfig.http.port,
+    url: `http://localhost:${serviceConfig.http.port}`,
+  });
+  logger.log({
+    event: 'service transport listening',
+    service: 'job-manager',
+    host: transportConfig.host,
+    port: transportConfig.tcpPort,
+    transport: 'tcp',
+  });
 }
 
 bootstrap();

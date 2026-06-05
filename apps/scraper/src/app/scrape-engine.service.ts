@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
 import axios, { type AxiosProxyConfig, type AxiosRequestConfig } from 'axios';
-import { PinoLoggerService } from '@org/logger';
+import { PinoLoggerService, getDurationMs } from '@org/logger';
 import { scraperFetchConfig } from './app.config';
 
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -20,7 +20,11 @@ export class ScrapeEngineService {
     private readonly logger: PinoLoggerService,
   ) {}
 
-  async fetchHtml(url: string, proxy?: string): Promise<string> {
+  async fetchHtml(
+    url: string,
+    proxy?: string,
+    context: { jobId?: string; correlationId?: string } = {},
+  ): Promise<string> {
     let lastError: unknown;
     const { fetchConfig } = this;
     const proxyConfig = proxy ? this.createProxyConfig(proxy) : undefined;
@@ -29,16 +33,22 @@ export class ScrapeEngineService {
     for (let attempt = 1; attempt <= fetchConfig.maxRetryAttempts; attempt += 1) {
       const userAgent = this.nextUserAgent();
       const releaseSlot = await this.acquireRequestSlot();
+      const requestStartedAt = Date.now();
+      const loggerContext = {
+        correlationId: context.correlationId,
+        jobId: context.jobId,
+        sourceUrl: url,
+        attempt,
+        maxAttempts: fetchConfig.maxRetryAttempts,
+        usedProxy: Boolean(proxyLabel),
+        proxy: proxyLabel ?? undefined,
+      };
 
       try {
         this.logger.log({
+          ...loggerContext,
           event: 'starting scrape request',
-          sourceUrl: url,
-          attempt,
-          maxAttempts: fetchConfig.maxRetryAttempts,
           userAgent,
-          usedProxy: Boolean(proxyLabel),
-          proxy: proxyLabel ?? undefined,
         });
 
         const requestConfig: AxiosRequestConfig<string> = {
@@ -64,14 +74,11 @@ export class ScrapeEngineService {
           : String(response.data);
 
         this.logger.log({
+          ...loggerContext,
           event: 'completed scrape request',
-          sourceUrl: url,
-          attempt,
-          maxAttempts: fetchConfig.maxRetryAttempts,
           statusCode: response.status,
           htmlLength: html.length,
-          usedProxy: Boolean(proxyLabel),
-          proxy: proxyLabel ?? undefined,
+          durationMs: getDurationMs(requestStartedAt),
         });
 
         return html;
@@ -86,15 +93,11 @@ export class ScrapeEngineService {
           const retryDelayMs = this.getRetryDelayMs(attempt, statusCode);
 
           this.logger.warn({
+            ...loggerContext,
             event: 'retrying scrape request',
-            sourceUrl: url,
-            attempt,
-            maxAttempts: fetchConfig.maxRetryAttempts,
             statusCode,
             retryDelayMs,
             errorMessage,
-            usedProxy: Boolean(proxyLabel),
-            proxy: proxyLabel ?? undefined,
           });
 
           await this.delay(retryDelayMs);
@@ -102,14 +105,10 @@ export class ScrapeEngineService {
         }
 
         this.logger.error({
+          ...loggerContext,
           event: 'failed scrape request',
-          sourceUrl: url,
-          attempt,
-          maxAttempts: fetchConfig.maxRetryAttempts,
           statusCode,
           errorMessage,
-          usedProxy: Boolean(proxyLabel),
-          proxy: proxyLabel ?? undefined,
         });
       } finally {
         releaseSlot();

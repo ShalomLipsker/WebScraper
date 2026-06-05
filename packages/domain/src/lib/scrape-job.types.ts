@@ -59,10 +59,12 @@ export const MAX_SCRAPE_URL_LENGTH =
 export interface SubmitScrapeJobPayload {
   url: string;
   proxy?: string;
+  correlationId?: string;
 }
 
 export interface GetScrapeJobPayload {
   jobId: JobId;
+  correlationId?: string;
 }
 
 export interface SubmitScrapeJobAcknowledgement {
@@ -92,6 +94,7 @@ export interface ScrapeJobStatusUpdatePayload {
   status: ScrapeJobUpdateStatus;
   resultPath?: string;
   errorMessage?: string;
+  correlationId?: string;
 }
 
 export type GetScrapeJobResult = ScrapeJobStatusView | null;

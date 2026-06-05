@@ -15,7 +15,12 @@ async function bootstrap() {
   app.flushLogs();
 
   await app.listen(serviceConfig.http.port);
-  logger.log(`scraper listening on http://localhost:${serviceConfig.http.port}`);
+  logger.log({
+    event: 'service listening',
+    service: 'scraper',
+    port: serviceConfig.http.port,
+    url: `http://localhost:${serviceConfig.http.port}`,
+  });
 }
 
 bootstrap();

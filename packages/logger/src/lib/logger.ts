@@ -17,6 +17,24 @@ const DEFAULT_REDACT_PATHS = [
 
 type HeaderValue = string | string[] | undefined;
 
+export const REQUEST_ID_HEADER = 'x-request-id';
+export const CORRELATION_ID_HEADER = 'x-correlation-id';
+
+export interface StructuredLogPayload {
+  event: string;
+  requestId?: string;
+  correlationId?: string;
+  durationMs?: number;
+  errorName?: string;
+  errorMessage?: string;
+  [key: string]: unknown;
+}
+
+export interface RequestWithHeaders {
+  id?: unknown;
+  headers?: Record<string, HeaderValue>;
+}
+
 export interface StructuredLoggerModuleOptions {
   serviceName: string;
   level?: string;
@@ -31,6 +49,47 @@ function getHeaderValue(value: HeaderValue): string | undefined {
 
   return value;
 }
+
+export function getRequestId(request: RequestWithHeaders): string | undefined {
+  const currentRequestId = typeof request.id === 'string' ? request.id : undefined;
+
+  return currentRequestId ?? getHeaderValue(request.headers?.[REQUEST_ID_HEADER]);
+}
+
+export function getCorrelationId(
+  headers?: Record<string, HeaderValue>,
+): string | undefined {
+  return getHeaderValue(headers?.[CORRELATION_ID_HEADER]);
+}
+
+export function resolveCorrelationId(
+  correlationId?: string,
+  requestId?: string,
+): string | undefined {
+  return correlationId ?? requestId;
+}
+
+export function getDurationMs(startedAt: number): number {
+  return Date.now() - startedAt;
+}
+
+export function getErrorLogFields(error: unknown): Pick<
+  StructuredLogPayload,
+  'errorName' | 'errorMessage'
+> {
+  if (error instanceof Error) {
+    return {
+      errorName: error.name,
+      errorMessage: error.message,
+    };
+  }
+
+  return {
+    errorMessage: 'Unknown error',
+  };
+}
+
+export const toErrorFields = getErrorLogFields;
 
 export function createStructuredLoggerOptions(
   options: StructuredLoggerModuleOptions,
@@ -60,11 +119,9 @@ export function createStructuredLoggerOptions(
         service: options.serviceName,
       }),
       genReqId: (request) => {
-        const currentRequestId = (request as { id?: unknown }).id;
         const requestId =
-          (typeof currentRequestId === 'string' ? currentRequestId : undefined) ??
-          getHeaderValue(request.headers?.['x-request-id']) ??
-          randomUUID();
+          getRequestId(request as RequestWithHeaders)
+          ?? randomUUID();
 
         (request as { id?: unknown }).id = requestId;
         return requestId;

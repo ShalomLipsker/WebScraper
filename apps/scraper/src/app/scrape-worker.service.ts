@@ -1,6 +1,6 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
-import { PinoLoggerService } from '@org/logger';
+import { PinoLoggerService, getDurationMs } from '@org/logger';
 import {
   type IMessageQueue,
   type IMessageWorker,
@@ -37,19 +37,34 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
       ScrapeJobCompletionResult
     >(
       async (message) => {
+        const startedAt = Date.now();
+
         if (message.name !== this.messagingConfig.jobPattern) {
           return { status: 'IGNORED' };
         }
 
         await this.publishStatusUpdateOrThrow({
           jobId: message.id,
+          correlationId: message.correlationId,
           status: 'PROCESSING',
         });
+
+        const loggerContext = {
+          correlationId: message.correlationId,
+          jobId: message.id,
+          messageName: message.name,
+          sourceUrl: message.data.url,
+          usedProxy: Boolean(message.data.proxy),
+        }
 
         try {
           const html = await this.scrapeEngineService.fetchHtml(
             message.data.url,
             message.data.proxy,
+            {
+              jobId: message.id,
+              correlationId: message.correlationId,
+            },
           );
           const resultKey = createScrapeResultKey(message.id);
 
@@ -65,18 +80,18 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
 
           await this.publishStatusUpdateOrThrow({
             jobId: message.id,
+            correlationId: message.correlationId,
             status: 'COMPLETED',
             resultPath: resultKey,
           });
 
           this.logger.log({
+            ...loggerContext,
             event: 'completed scrape job',
-            jobId: message.id,
-            messageName: message.name,
-            sourceUrl: message.data.url,
-            usedProxy: Boolean(message.data.proxy),
             htmlLength: html.length,
             resultPath: resultKey,
+            durationMs: getDurationMs(startedAt),
+            outcome: 'completed',
           });
 
           return {
@@ -86,11 +101,9 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
         } catch (error: unknown) {
           if (error instanceof StatusPublishError) {
             this.logger.error({
+              ...loggerContext,
               event: 'failed to publish scrape job status',
-              jobId: message.id,
-              messageName: message.name,
-              sourceUrl: message.data.url,
-              usedProxy: Boolean(message.data.proxy),
+
               errorMessage: error.message,
             });
 
@@ -103,6 +116,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
             try {
               await this.publishStatusUpdate({
                 jobId: message.id,
+                correlationId: message.correlationId,
                 status: 'FAILED',
                 errorMessage,
               });
@@ -112,14 +126,12 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
           }
 
           this.logger.error({
+            ...loggerContext,
             event: 'failed scrape job',
-            jobId: message.id,
-            messageName: message.name,
-            sourceUrl: message.data.url,
-            usedProxy: Boolean(message.data.proxy),
             attemptsMade: message.attemptsMade,
             maxAttempts: message.maxAttempts,
             errorMessage,
+            durationMs: getDurationMs(startedAt),
           });
 
           throw error;
@@ -150,6 +162,8 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
       id: createStatusUpdateMessageId(payload.jobId, payload.status),
       name: this.messagingConfig.statusPattern,
       data: payload,
+    }, {
+      correlationId: payload.correlationId,
     });
   }
 

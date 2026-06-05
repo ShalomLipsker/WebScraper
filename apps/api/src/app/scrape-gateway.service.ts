@@ -14,6 +14,7 @@ import {
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
 } from '@org/domain';
+import { PinoLoggerService, getDurationMs, toErrorFields } from '@org/logger';
 import {
   resolveStorageLocation,
   S3StorageService,
@@ -50,32 +51,45 @@ export class ScrapeGatewayService {
     @Inject(JOB_MANAGER_CLIENT)
     private readonly jobManagerClient: ClientProxy,
     private readonly storageService: S3StorageService,
+    private readonly logger: PinoLoggerService,
   ) {}
 
   submitJob(
     payload: SubmitScrapeJobPayload,
   ): Promise<SubmitScrapeJobAcknowledgement> {
     return this.sendToJobManager<SubmitScrapeJobAcknowledgement>(
+      'submitted scrape job to job-manager',
       this.messagingConfig.jobPattern,
       payload,
     );
   }
 
-  getJobStatus(jobId: string): Promise<GetScrapeJobResult> {
+  getJobStatus(jobId: string, correlationId?: string): Promise<GetScrapeJobResult> {
     return this.sendToJobManager<ScrapeJobStatusView | null>(
+      'loaded scrape job status from job-manager',
       this.messagingConfig.statusPattern,
-      { jobId },
+      { jobId, correlationId },
     );
   }
 
   async getCompletedJobStream(
     job: ScrapeJobStatusView,
   ): Promise<CompletedScrapeJobStream> {
+    const startedAt = Date.now();
     const location = resolveStorageLocation(
       job.resultPath,
       this.storageConfig.defaultBucket,
     );
     const object = await this.readStoredResult(location.bucket, location.key, () => this.storageService.getObject(location));
+
+    this.logger.log({
+      event: 'loaded completed scrape result stream',
+      jobId: job.jobId,
+      contentLength: object.contentLength,
+      contentType: object.contentType,
+      durationMs: getDurationMs(startedAt),
+      outcome: 'loaded',
+    });
 
     return {
       contentType: object.contentType,
@@ -87,6 +101,7 @@ export class ScrapeGatewayService {
   async getCompletedJobPresignedUrl(
     job: ScrapeJobStatusView,
   ): Promise<CompletedScrapeJobAccessView> {
+    const startedAt = Date.now();
     const location = resolveStorageLocation(
       job.resultPath,
       this.storageConfig.defaultBucket,
@@ -103,6 +118,14 @@ export class ScrapeGatewayService {
       responseContentType: 'text/html; charset=utf-8',
     });
 
+    this.logger.log({
+      event: 'created completed scrape result presigned url',
+      jobId: job.jobId,
+      expiresAt: presignedObject.expiresAt,
+      durationMs: getDurationMs(startedAt),
+      outcome: 'created',
+    });
+
     return {
       ...job,
       deliveryMode: 'presigned-url',
@@ -111,13 +134,37 @@ export class ScrapeGatewayService {
     };
   }
 
-  private sendToJobManager<TResult>(pattern: string, payload: unknown): Promise<TResult> {
+  private sendToJobManager<TResult>(
+    event: string,
+    pattern: string,
+    payload: unknown,
+  ): Promise<TResult> {
+    const startedAt = Date.now();
+
     return firstValueFrom(
       this.jobManagerClient.send<TResult>(pattern, payload).pipe(
         timeout(this.jobManagerConfig.requestTimeoutMs),
-        catchError((error: unknown) => throwError(() => this.mapJobManagerError(error))),
+        catchError((error: unknown) => {
+          this.logger.error({
+            event: 'job-manager request failed',
+            pattern,
+            durationMs: getDurationMs(startedAt),
+            ...toErrorFields(error),
+          });
+
+          return throwError(() => this.mapJobManagerError(error));
+        }),
       ),
-    );
+    ).then((result) => {
+      this.logger.log({
+        event,
+        pattern,
+        durationMs: getDurationMs(startedAt),
+        outcome: 'succeeded',
+      });
+
+      return result;
+    });
   }
 
   private async readStoredResult<TResult>(

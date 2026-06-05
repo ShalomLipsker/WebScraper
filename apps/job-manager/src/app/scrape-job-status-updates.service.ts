@@ -41,31 +41,32 @@ export class ScrapeJobStatusUpdatesService
           },
         );
 
+        const loggerContext = {
+          correlationId: message.data.correlationId,
+          jobId: message.data.jobId,
+          nextStatus: message.data.status,
+          outcome: updateResult.outcome,
+        };
+
         switch (updateResult.outcome) {
           case 'updated':
             this.logger.log({
               event: 'applied scrape status update',
-              jobId: message.data.jobId,
-              nextStatus: message.data.status,
-              outcome: updateResult.outcome,
+              ...loggerContext,
               persistedStatus: updateResult.job.status,
             });
             break;
           case 'blocked':
             this.logger.warn({
               event: 'ignored scrape status update',
-              jobId: message.data.jobId,
-              nextStatus: message.data.status,
-              outcome: updateResult.outcome,
+              ...loggerContext,
               persistedStatus: updateResult.job.status,
             });
             break;
           case 'not_found':
             this.logger.warn({
               event: 'ignored scrape status update',
-              jobId: message.data.jobId,
-              nextStatus: message.data.status,
-              outcome: updateResult.outcome,
+              ...loggerContext,
             });
             break;
         }

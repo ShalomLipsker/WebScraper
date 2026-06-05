@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { PinoLoggerService } from '@org/logger';
 import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
 
@@ -20,6 +21,8 @@ export class PostgresRecoveryLeaseStore implements IRecoveryLeaseStore {
   constructor(
     @InjectRepository(JobMaintenanceLeaseEntity)
     private readonly leasesRepository: Repository<JobMaintenanceLeaseEntity>,
+    @Optional()
+    private readonly logger?: PinoLoggerService,
   ) {}
 
   async tryAcquireLease(
@@ -45,6 +48,13 @@ export class PostgresRecoveryLeaseStore implements IRecoveryLeaseStore {
 
     const [leaseRow] = result as LeaseRow[];
 
+    this.logger?.log({
+      event: leaseRow ? 'acquired recovery lease' : 'skipped recovery lease acquisition',
+      leaseId: id,
+      leaseTtlSeconds,
+      outcome: leaseRow ? 'acquired' : 'busy',
+    });
+
     return leaseRow ? toRecoveryLeaseHandle(leaseRow) : null;
   }
 
@@ -68,6 +78,13 @@ export class PostgresRecoveryLeaseStore implements IRecoveryLeaseStore {
 
     const [leaseRow] = result as LeaseRow[];
 
+    this.logger?.log({
+      event: leaseRow ? 'extended recovery lease' : 'failed to extend recovery lease',
+      leaseId: lease.id,
+      leaseTtlSeconds,
+      outcome: leaseRow ? 'extended' : 'expired',
+    });
+
     return leaseRow ? toRecoveryLeaseHandle(leaseRow) : null;
   }
 
@@ -80,6 +97,12 @@ export class PostgresRecoveryLeaseStore implements IRecoveryLeaseStore {
       `,
       [lease.id, lease.ownerId],
     );
+
+    this.logger?.log({
+      event: 'released recovery lease',
+      leaseId: lease.id,
+      outcome: 'released',
+    });
   }
 }
 

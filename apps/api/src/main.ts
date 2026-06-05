@@ -23,7 +23,12 @@ async function bootstrap() {
   app.flushLogs();
 
   await app.listen(serviceConfig.http.port);
-  logger.log(`api listening on http://localhost:${serviceConfig.http.port}`);
+  logger.log({
+    event: 'service listening',
+    service: 'api',
+    port: serviceConfig.http.port,
+    url: `http://localhost:${serviceConfig.http.port}`,
+  });
 }
 
 bootstrap();
