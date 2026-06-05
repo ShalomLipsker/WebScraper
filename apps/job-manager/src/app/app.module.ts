@@ -12,11 +12,13 @@ import { StorageModule } from '@org/storage';
 import {
   jobManagerConfigModule,
   jobManagerMessagingConfig,
+  jobManagerOutboxConfig,
   jobManagerPersistenceConfig,
   jobManagerRabbitMqConfig,
   jobManagerStorageConfig,
 } from './app.config';
 import { ExpiredJobsCleanupService } from './expired-jobs-cleanup.service';
+import { POLLING_WORKER_OPTIONS, PollingWorker } from './polling-worker';
 import { ScrapeJobsController } from './scrape-jobs.controller';
 import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
 import { ScrapeJobSubmissionOutboxService } from './scrape-job-submission-outbox.service';
@@ -108,6 +110,20 @@ import { ScrapeJobsService } from './scrape-jobs.service';
       },
       inject: [jobManagerMessagingConfig.KEY, jobManagerRabbitMqConfig.KEY, PinoLoggerService],
     },
+    {
+      provide: POLLING_WORKER_OPTIONS,
+      useFactory: (...args: unknown[]) => {
+        const [outboxConfig] = args as [
+          ConfigType<typeof jobManagerOutboxConfig>,
+        ];
+
+        return {
+          pollIntervalMs: outboxConfig.pollIntervalMs,
+        };
+      },
+      inject: [jobManagerOutboxConfig.KEY],
+    },
+    PollingWorker,
     ScrapeJobsService,
     ScrapeJobSubmissionOutboxService,
     ScrapeJobStatusUpdatesService,

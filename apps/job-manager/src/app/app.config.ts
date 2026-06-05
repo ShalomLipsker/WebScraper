@@ -52,6 +52,10 @@ export interface JobManagerRabbitMqConfig {
 export interface JobManagerOutboxConfig {
   pollIntervalMs: number;
   batchSize: number;
+  dispatchConcurrency: number;
+  maxAttempts: number;
+  publishTimeoutMs: number;
+  stateUpdateTimeoutMs: number;
 }
 
 export interface JobManagerCleanupConfig {
@@ -139,6 +143,30 @@ class EnvironmentVariables {
 
   @IsInt()
   @Min(1)
+  @IsOptional()
+  @Transform(({ value }) => (value ? Number(value) : undefined))
+  OUTBOX_DISPATCH_CONCURRENCY: number = 10;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @Transform(({ value }) => (value ? Number(value) : undefined))
+  OUTBOX_MAX_ATTEMPTS: number = 5;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @Transform(({ value }) => (value ? Number(value) : undefined))
+  OUTBOX_PUBLISH_TIMEOUT_MS: number = 5_000;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  @Transform(({ value }) => (value ? Number(value) : undefined))
+  OUTBOX_STATE_UPDATE_TIMEOUT_MS: number = 5_000;
+
+  @IsInt()
+  @Min(1)
   @Max(59)
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))
@@ -223,6 +251,16 @@ function validateEnvironmentVariables(
     POSTGRES_SYNCHRONIZE: String(validatedConfig.POSTGRES_SYNCHRONIZE),
     OUTBOX_POLL_INTERVAL_MS: String(validatedConfig.OUTBOX_POLL_INTERVAL_MS),
     OUTBOX_BATCH_SIZE: String(validatedConfig.OUTBOX_BATCH_SIZE),
+    OUTBOX_DISPATCH_CONCURRENCY: String(
+      validatedConfig.OUTBOX_DISPATCH_CONCURRENCY,
+    ),
+    OUTBOX_MAX_ATTEMPTS: String(validatedConfig.OUTBOX_MAX_ATTEMPTS),
+    OUTBOX_PUBLISH_TIMEOUT_MS: String(
+      validatedConfig.OUTBOX_PUBLISH_TIMEOUT_MS,
+    ),
+    OUTBOX_STATE_UPDATE_TIMEOUT_MS: String(
+      validatedConfig.OUTBOX_STATE_UPDATE_TIMEOUT_MS,
+    ),
     JOB_CLEANUP_INTERVAL_MINUTES: String(
       validatedConfig.JOB_CLEANUP_INTERVAL_MINUTES,
     ),
@@ -294,8 +332,21 @@ function readRabbitMqConfig(): JobManagerRabbitMqConfig {
 
 function readOutboxConfig(): JobManagerOutboxConfig {
   return {
-    pollIntervalMs: Number(process.env.OUTBOX_POLL_INTERVAL_MS),
-    batchSize: Number(process.env.OUTBOX_BATCH_SIZE),
+    pollIntervalMs: readNumberEnv(process.env.OUTBOX_POLL_INTERVAL_MS, 1_000),
+    batchSize: readNumberEnv(process.env.OUTBOX_BATCH_SIZE, 50),
+    dispatchConcurrency: readNumberEnv(
+      process.env.OUTBOX_DISPATCH_CONCURRENCY,
+      10,
+    ),
+    maxAttempts: readNumberEnv(process.env.OUTBOX_MAX_ATTEMPTS, 5),
+    publishTimeoutMs: readNumberEnv(
+      process.env.OUTBOX_PUBLISH_TIMEOUT_MS,
+      5_000,
+    ),
+    stateUpdateTimeoutMs: readNumberEnv(
+      process.env.OUTBOX_STATE_UPDATE_TIMEOUT_MS,
+      5_000,
+    ),
   };
 }
 

@@ -39,6 +39,11 @@ export interface ClaimedOutboxMessage<TPayload = unknown> {
   attemptCount: number;
 }
 
+export interface ClaimOutboxMessagesOptions {
+  batchSize?: number;
+  maxAttempts?: number;
+}
+
 export interface OutboxQueueMessage<TPayload = unknown> {
   id: string;
   data: TPayload;
@@ -47,7 +52,7 @@ export interface OutboxQueueMessage<TPayload = unknown> {
 
 export interface IOutboxMessageStore {
   enqueue<TPayload>(input: EnqueueOutboxMessageInput<TPayload>): Promise<PersistedOutboxMessage<TPayload>>;
-  claimBatch(batchSize?: number): Promise<Array<ClaimedOutboxMessage>>;
+  claimBatch(options?: ClaimOutboxMessagesOptions): Promise<Array<ClaimedOutboxMessage>>;
   markPublished(outboxId: string): Promise<void>;
   markJobEnqueuedAndPublished(jobId: string, outboxId: string): Promise<void>;
   markFailed(outboxId: string, errorMessage: string): Promise<void>;

@@ -4,21 +4,22 @@ import { PinoLoggerService } from '@org/logger';
 import type { IMessageQueue } from '@org/messaging';
 import {
   MESSAGE_QUEUE_TOKEN,
+  RABBITMQ_CORRELATION_ID_HEADER,
   RABBITMQ_DEDUPLICATION_HEADER,
 } from '@org/messaging';
 import {
   OUTBOX_MESSAGE_STORE_TOKEN,
+  type ClaimedOutboxMessage,
   type IOutboxMessageStore,
 } from '@org/persistence';
 
 import { jobManagerOutboxConfig } from './app.config';
+import { PollingWorker } from './polling-worker';
+import { timeout } from './timeout';
 
 @Injectable()
 export class ScrapeJobSubmissionOutboxService
   implements OnModuleInit, OnModuleDestroy {
-  private timer: NodeJS.Timeout | null = null;
-  private dispatchInFlight = false;
-
   constructor(
     @Inject(jobManagerOutboxConfig.KEY)
     private readonly outboxConfig: ConfigType<typeof jobManagerOutboxConfig>,
@@ -26,61 +27,149 @@ export class ScrapeJobSubmissionOutboxService
     private readonly outboxStore: IOutboxMessageStore,
     @Inject(MESSAGE_QUEUE_TOKEN)
     private readonly messageQueue: IMessageQueue,
+    private readonly pollingWorker: PollingWorker,
     private readonly logger: PinoLoggerService,
-  ) {}
+  ) { }
 
   onModuleInit(): void {
-    this.timer = setInterval(() => {
-      void this.dispatchPendingMessages();
-    }, this.outboxConfig.pollIntervalMs);
-
-    void this.dispatchPendingMessages();
+    this.pollingWorker.start(() => this.processBatch());
   }
 
-  async onModuleDestroy(): Promise<void> {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
+  onModuleDestroy(): Promise<void> {
+    return this.pollingWorker.stop();
+  }
+
+  private async processBatch(): Promise<void> {
+    try {
+      const messages = await this.outboxStore.claimBatch({
+        batchSize: this.outboxConfig.batchSize,
+        maxAttempts: this.outboxConfig.maxAttempts,
+      });
+
+      await this.dispatchClaimedMessages(messages);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown outbox dispatch failure';
+
+      this.logger.error({
+        event: 'failed to poll outbox messages',
+        errorMessage,
+      });
     }
   }
 
-  private async dispatchPendingMessages(): Promise<void> {
-    if (this.dispatchInFlight) {
+  private async dispatchClaimedMessages(
+    messages: Array<ClaimedOutboxMessage>,
+  ): Promise<void> {
+    if (messages.length === 0) {
       return;
     }
 
-    this.dispatchInFlight = true;
+    const resolvedConcurrency = Math.min(
+      this.outboxConfig.dispatchConcurrency,
+      messages.length,
+    );
+    let nextMessageIndex = 0;
+
+    await Promise.all(Array.from({ length: resolvedConcurrency }, async () => {
+      while (true) {
+        const message = messages[nextMessageIndex];
+        nextMessageIndex += 1;
+
+        if (!message) {
+          return;
+        }
+
+        await this.dispatchMessage(message);
+      }
+    }));
+  }
+
+  private async dispatchMessage(
+    message: ClaimedOutboxMessage,
+  ): Promise<void> {
+    const correlationId = getCorrelationIdFromPayload(message.message.data);
+    const nextAttempt = message.attemptCount + 1;
+    const loggerContext = {
+      correlationId,
+      outboxId: message.outboxId,
+      jobId: message.aggregateId,
+      messageId: message.message.id,
+      messageName: message.message.name,
+      attempt: nextAttempt,
+    }
 
     try {
-      const messages = await this.outboxStore.claimBatch(this.outboxConfig.batchSize);
+      await timeout(
+        'publish outbox message',
+        this.outboxConfig.publishTimeoutMs,
+        () => this.messageQueue.publish(message.message, {
+          correlationId,
+          headers: {
+            [RABBITMQ_DEDUPLICATION_HEADER]: message.message.id,
+            ...(correlationId
+              ? { [RABBITMQ_CORRELATION_ID_HEADER]: correlationId }
+              : {}),
+          },
+        }),
+      );
+      await timeout(
+        'mark outbox message as published',
+        this.outboxConfig.stateUpdateTimeoutMs,
+        () => this.outboxStore.markJobEnqueuedAndPublished(
+          message.aggregateId,
+          message.outboxId,
+        ),
+      );
 
-      for (const message of messages) {
-        try {
-          await this.messageQueue.publish(message.message, {
-            headers: {
-              [RABBITMQ_DEDUPLICATION_HEADER]: message.message.id,
-            },
-          });
-          await this.outboxStore.markJobEnqueuedAndPublished(
-            message.aggregateId,
-            message.outboxId,
-          );
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown outbox dispatch failure';
+      this.logger.log({
+        ...loggerContext,
+        event: 'dispatched outbox message',
+        outcome: 'published',
+      });
+    } catch (error: unknown) {
+      const errorMessage = toErrorMessage(error);
+      const exhausted = nextAttempt >= this.outboxConfig.maxAttempts;
 
-          await this.outboxStore.markFailed(message.outboxId, errorMessage);
-          this.logger.error({
-            event: 'failed to dispatch outbox message',
-            outboxId: message.outboxId,
-            jobId: message.aggregateId,
-            messageId: message.message.id,
-            messageName: message.message.name,
-            errorMessage,
-          });
-        }
+      try {
+        await timeout(
+          exhausted
+            ? 'record exhausted outbox message'
+            : 'record failed outbox message',
+          this.outboxConfig.stateUpdateTimeoutMs,
+          () => this.outboxStore.markFailed(message.outboxId, errorMessage),
+        );
+      } catch (markFailedError: unknown) {
+        this.logger.error({
+          ...loggerContext,
+          event: 'failed to persist outbox dispatch failure',
+          maxAttempts: this.outboxConfig.maxAttempts,
+          errorMessage,
+          persistenceErrorMessage: toErrorMessage(markFailedError),
+        });
       }
-    } finally {
-      this.dispatchInFlight = false;
+
+      this.logger.error({
+        ...loggerContext,
+        event: exhausted
+          ? 'discarded outbox message after max attempts'
+          : 'failed to dispatch outbox message',
+        maxAttempts: this.outboxConfig.maxAttempts,
+        errorMessage,
+      });
     }
   }
+}
+
+function getCorrelationIdFromPayload(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const correlationId = (payload as { correlationId?: unknown }).correlationId;
+
+  return typeof correlationId === 'string' ? correlationId : undefined;
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown outbox failure';
 }

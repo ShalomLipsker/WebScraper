@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { PinoLoggerService } from '@org/logger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 
@@ -13,6 +14,7 @@ import {
 } from './persistence.constants.js';
 import { JobEntity, OutboxMessageEntity } from './persistence.entities.js';
 import type {
+  ClaimOutboxMessagesOptions,
   ClaimedOutboxMessage,
   EnqueueOutboxMessageInput,
   IOutboxMessageStore,
@@ -28,7 +30,9 @@ export class PostgresOutboxService implements IOutboxMessageStore {
     private readonly outboxRepository: Repository<OutboxMessageEntity>,
     @Inject(POSTGRES_PERSISTENCE_OPTIONS_TOKEN)
     private readonly options: PostgresPersistenceModuleOptions,
-  ) {}
+    @Optional()
+    private readonly logger?: PinoLoggerService,
+  ) { }
 
   async enqueue<TPayload>(
     input: EnqueueOutboxMessageInput<TPayload>,
@@ -48,26 +52,52 @@ export class PostgresOutboxService implements IOutboxMessageStore {
 
     const savedMessage = await this.outboxRepository.save(entity);
 
+    this.logger?.log({
+      event: 'enqueued outbox message',
+      outboxId: savedMessage.id,
+      jobId: input.aggregateId,
+      messageId: input.message.id,
+      messageName: input.message.name,
+      queueName: input.queueName,
+      correlationId: getCorrelationIdFromPayload(input.message.data),
+    });
+
     return toPersistedOutboxMessage(savedMessage) as PersistedOutboxMessage<TPayload>;
   }
 
-  async claimBatch(batchSize?: number): Promise<Array<ClaimedOutboxMessage>> {
+  async claimBatch(
+    options: ClaimOutboxMessagesOptions = {},
+  ): Promise<Array<ClaimedOutboxMessage>> {
     const resolvedBatchSize =
-      batchSize
+      options.batchSize
       ?? this.options.outboxClaimBatchSize
       ?? DEFAULT_OUTBOX_CLAIM_BATCH_SIZE;
 
     const claimTtlMs =
       this.options.outboxClaimTtlMs
       ?? DEFAULT_OUTBOX_CLAIM_TTL_MS;
-      
-    const claimedMessages = await this.outboxRepository.query(
+
+    const queryParameters: Array<Date | number> = [
+      resolvedBatchSize,
+      new Date(Date.now() + claimTtlMs),
+    ];
+
+    const maxAttemptsFilter = options.maxAttempts === undefined
+      ? ''
+      : '            AND attempt_count < $3';
+
+    if (options.maxAttempts !== undefined) {
+      queryParameters.push(options.maxAttempts);
+    }
+
+    const rawClaimedMessages = await this.outboxRepository.query(
       `
         WITH candidate AS (
           SELECT id
           FROM outbox_messages
           WHERE published_at IS NULL
             AND next_attempt_at <= NOW()
+${maxAttemptsFilter}
           ORDER BY created_at ASC
           FOR UPDATE SKIP LOCKED
           LIMIT $1
@@ -85,8 +115,19 @@ export class PostgresOutboxService implements IOutboxMessageStore {
                   outbox.payload,
                   outbox.attempt_count
       `,
-      [resolvedBatchSize, new Date(Date.now() + claimTtlMs)],
+      queryParameters,
     );
+
+    const claimedMessages = Array.isArray(rawClaimedMessages[0])
+      ? rawClaimedMessages[0]
+      : rawClaimedMessages;
+
+    if (claimedMessages.length > 0) {
+      this.logger?.log({
+        event: 'claimed outbox message batch',
+        batchSize: claimedMessages.length,
+      });
+    }
 
     return claimedMessages.map((message: Record<string, unknown>) => ({
       outboxId: String(message.id),
@@ -115,6 +156,12 @@ export class PostgresOutboxService implements IOutboxMessageStore {
       })
       .where('id = :id', { id: outboxId })
       .execute();
+
+    this.logger?.log({
+      event: 'marked outbox message published',
+      outboxId,
+      outcome: 'published',
+    });
   }
 
   async markJobEnqueuedAndPublished(
@@ -149,6 +196,13 @@ export class PostgresOutboxService implements IOutboxMessageStore {
         .where('id = :id', { id: outboxId })
         .execute();
     });
+
+    this.logger?.log({
+      event: 'marked job enqueued and outbox message published',
+      jobId,
+      outboxId,
+      outcome: 'published',
+    });
   }
 
   async markFailed(outboxId: string, errorMessage: string): Promise<void> {
@@ -166,7 +220,25 @@ export class PostgresOutboxService implements IOutboxMessageStore {
       `,
       [outboxId, errorMessage, new Date(Date.now() + retryDelayMs)],
     );
+
+    this.logger?.warn({
+      event: 'marked outbox message failed',
+      outboxId,
+      retryDelayMs,
+      errorMessage,
+      outcome: 'failed',
+    });
   }
+}
+
+function getCorrelationIdFromPayload(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const correlationId = (payload as { correlationId?: unknown }).correlationId;
+
+  return typeof correlationId === 'string' ? correlationId : undefined;
 }
 
 function toPersistedOutboxMessage(
@@ -192,6 +264,6 @@ function createExpirationDate(
 ): Date {
   return new Date(
     Date.now()
-      + (options.jobRetentionSeconds ?? DEFAULT_JOB_RETENTION_SECONDS) * 1000,
+    + (options.jobRetentionSeconds ?? DEFAULT_JOB_RETENTION_SECONDS) * 1000,
   );
 }
