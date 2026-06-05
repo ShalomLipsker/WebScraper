@@ -124,7 +124,7 @@ pnpm install
 docker compose up --build
 ```
 
-This starts Redis, MinIO, and the three apps with the default ports shown above. MinIO is initialized with a `scrape-results` bucket.
+This starts Redis, MinIO, and the three apps with the default ports shown above. MinIO is initialized with a `html-scraped-jobs` bucket and a 24-hour lifecycle expiration rule.
 
 Default local MinIO credentials:
 
@@ -199,7 +199,7 @@ packages/
 - `job-manager` performs lazy reconciliation for stale `SUBMITTED`, `ENQUEUED`, and `PROCESSING` jobs.
 - Deduplication is based on the SHA-256 hash of the submitted URL.
 - The scraper currently fetches HTML over HTTP with Axios and retry/backoff logic.
-- Result objects are stored under the `scrape-results/` key prefix in the configured bucket.
+- Result objects are stored under the `scrape-results/` key prefix in the configured `html-scraped-jobs` bucket.
 
 ## App readmes
 
