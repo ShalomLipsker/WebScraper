@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { type ConfigType } from '@nestjs/config';
 import { StructuredLoggerModule } from '@org/logger';
 import { StorageModule } from '@org/storage';
-import { apiConfigModule, getAppConfig } from './app.config';
+import { apiConfigModule, apiStorageConfig } from './app.config';
 import { ScrapeGatewayService } from './scrape-gateway.service';
 import { ScrapeController } from './scrape.controller';
 import { registerJobManagerClient } from './job-manager-client';
@@ -15,23 +15,22 @@ import { registerJobManagerClient } from './job-manager-client';
     registerJobManagerClient(),
     StorageModule.registerAsync({
       imports: [apiConfigModule],
-      inject: [ConfigService],
+      inject: [apiStorageConfig.KEY],
       useFactory: (...args) => {
-        const [configService] = args as [ConfigService];
-        const appConfig = getAppConfig(configService);
+        const [storageConfig] = args as [ConfigType<typeof apiStorageConfig>];
 
         return {
-          region: appConfig.storage.region,
-          endpoint: appConfig.storage.endpoint,
-          forcePathStyle: appConfig.storage.forcePathStyle,
+          region: storageConfig.region,
+          endpoint: storageConfig.endpoint,
+          forcePathStyle: storageConfig.forcePathStyle,
           credentials:
-            appConfig.storage.accessKeyId && appConfig.storage.secretAccessKey
+            storageConfig.accessKeyId && storageConfig.secretAccessKey
               ? {
-                  accessKeyId: appConfig.storage.accessKeyId,
-                  secretAccessKey: appConfig.storage.secretAccessKey,
+                  accessKeyId: storageConfig.accessKeyId,
+                  secretAccessKey: storageConfig.secretAccessKey,
                 }
               : undefined,
-          defaultBucket: appConfig.storage.defaultBucket,
+          defaultBucket: storageConfig.defaultBucket,
         };
       },
     }),

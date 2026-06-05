@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { type ConfigType } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
 import type { Readable } from 'node:stream';
 import {
@@ -10,7 +10,7 @@ import {
 } from '@org/domain';
 import { S3StorageService } from '@org/storage';
 import { firstValueFrom } from 'rxjs';
-import { getAppConfig, type ApiConfig } from './app.config';
+import { apiMessagingConfig, apiStorageConfig } from './app.config';
 import { JOB_MANAGER_CLIENT } from './job-manager-client';
 
 export interface CompletedScrapeJobAccessView extends ScrapeJobStatusView {
@@ -29,23 +29,22 @@ export type CompletedScrapeJobDeliveryMode = 'status' | 'stream' | 'presigned-ur
 
 @Injectable()
 export class ScrapeGatewayService {
-  private readonly appConfig: ApiConfig;
-
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(apiMessagingConfig.KEY)
+    private readonly messagingConfig: ConfigType<typeof apiMessagingConfig>,
+    @Inject(apiStorageConfig.KEY)
+    private readonly storageConfig: ConfigType<typeof apiStorageConfig>,
     @Inject(JOB_MANAGER_CLIENT)
     private readonly jobManagerClient: ClientProxy,
     private readonly storageService: S3StorageService,
-  ) {
-    this.appConfig = getAppConfig(this.configService);
-  }
+  ) {}
 
   submitJob(
     payload: SubmitScrapeJobPayload,
   ): Promise<SubmitScrapeJobAcknowledgement> {
     return firstValueFrom(
       this.jobManagerClient.send<SubmitScrapeJobAcknowledgement>(
-        this.appConfig.messaging.jobPattern,
+        this.messagingConfig.jobPattern,
         payload,
       ),
     );
@@ -54,7 +53,7 @@ export class ScrapeGatewayService {
   getJobStatus(jobId: string): Promise<GetScrapeJobResult> {
     return firstValueFrom(
       this.jobManagerClient.send<ScrapeJobStatusView | null>(
-        this.appConfig.messaging.statusPattern,
+        this.messagingConfig.statusPattern,
         { jobId },
       ),
     );
@@ -65,7 +64,7 @@ export class ScrapeGatewayService {
   ): Promise<CompletedScrapeJobStream> {
     const location = resolveStorageLocation(
       job.resultPath,
-      this.appConfig.storage.defaultBucket,
+      this.storageConfig.defaultBucket,
     );
     const object = await this.storageService.getObject(location);
 
@@ -81,11 +80,11 @@ export class ScrapeGatewayService {
   ): Promise<CompletedScrapeJobAccessView> {
     const location = resolveStorageLocation(
       job.resultPath,
-      this.appConfig.storage.defaultBucket,
+      this.storageConfig.defaultBucket,
     );
     const presignedObject = await this.storageService.createPresignedGetUrl({
       ...location,
-      expiresInSeconds: this.appConfig.storage.presignTtlSeconds,
+      expiresInSeconds: this.storageConfig.presignTtlSeconds,
       responseContentDisposition: `inline; filename="${job.jobId}.html"`,
       responseContentType: 'text/html; charset=utf-8',
     });

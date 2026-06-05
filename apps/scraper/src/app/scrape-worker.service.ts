@@ -1,5 +1,5 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { type ConfigType } from '@nestjs/config';
 import { PinoLoggerService } from '@org/logger';
 import {
   type IMessageQueue,
@@ -11,17 +11,17 @@ import {
   type ScrapeJobStatusUpdatePayload,
   type SubmitScrapeJobPayload,
 } from '@org/domain';
-import { getAppConfig, type ScraperConfig } from './app.config';
+import { scraperMessagingConfig } from './app.config';
 import { ScrapeEngineService } from './scrape-engine.service';
 import { SCRAPE_STATUS_QUEUE_TOKEN } from './app.module';
 
 @Injectable()
 export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
   private worker: IMessageWorker | null = null;
-  private readonly appConfig: ScraperConfig;
 
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(scraperMessagingConfig.KEY)
+    private readonly messagingConfig: ConfigType<typeof scraperMessagingConfig>,
     @Inject(MESSAGE_QUEUE_TOKEN)
     private readonly messageQueue: IMessageQueue,
     @Inject(SCRAPE_STATUS_QUEUE_TOKEN)
@@ -29,9 +29,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
     private readonly logger: PinoLoggerService,
     private readonly scrapeEngineService: ScrapeEngineService,
     private readonly storageService: S3StorageService,
-  ) {
-    this.appConfig = getAppConfig(this.configService);
-  }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     this.worker = await this.messageQueue.registerHandler<
@@ -39,7 +37,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
       ScrapeJobCompletionResult
     >(
       async (message) => {
-        if (message.name !== this.appConfig.messaging.jobPattern) {
+        if (message.name !== this.messagingConfig.jobPattern) {
           return { status: 'IGNORED' };
         }
 
@@ -113,7 +111,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     await this.statusQueue.publish({
       id: createStatusUpdateMessageId(payload.jobId, payload.status),
-      name: this.appConfig.messaging.statusPattern,
+      name: this.messagingConfig.statusPattern,
       data: payload,
     });
   }

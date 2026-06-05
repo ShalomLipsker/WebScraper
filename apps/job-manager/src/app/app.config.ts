@@ -1,27 +1,31 @@
 import { type DynamicModule } from '@nestjs/common';
-import { ConfigModule, ConfigService, registerAs } from '@nestjs/config';
+import { ConfigModule, registerAs } from '@nestjs/config';
 import { readScrapeMessagingConfig, type ScrapeMessagingConfig } from '@org/domain';
 import { plainToInstance, Transform } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
 const APP_CONFIG_NAMESPACE = 'app';
+type JobManagerNodeEnv = 'development' | 'production' | 'test';
 
-export interface JobManagerAppConfig {
+export interface JobManagerHttpConfig {
+  port: number;
+}
+
+export interface JobManagerServiceConfig {
   serviceName: 'job-manager';
-  nodeEnv: 'development' | 'production' | 'test';
+  nodeEnv: JobManagerNodeEnv;
   logLevel: string;
-  http: {
-    port: number;
-  };
-  transport: {
-    host: string;
-    tcpPort: number;
-  };
-  messaging: ScrapeMessagingConfig;
-  recovery: {
-    submittedDelayMs: number;
-    submittedLeaseSeconds: number;
-  };
+  http: JobManagerHttpConfig;
+}
+
+export interface JobManagerTransportConfig {
+  host: string;
+  tcpPort: number;
+}
+
+export interface JobManagerRecoveryConfig {
+  submittedDelayMs: number;
+  submittedLeaseSeconds: number;
 }
 
 class EnvironmentVariables {
@@ -112,38 +116,65 @@ function validateEnvironmentVariables(
   };
 }
 
-export const jobManagerMessagingBindings = readScrapeMessagingConfig(process.env);
+function readServiceConfig(): JobManagerServiceConfig {
+  return {
+    serviceName: 'job-manager',
+    nodeEnv: (process.env.NODE_ENV as JobManagerNodeEnv) || 'development',
+    logLevel: process.env.LOG_LEVEL || 'info',
+    http: {
+      port: Number(process.env.PORT),
+    },
+  };
+}
 
-const jobManagerConfig = registerAs(
-  APP_CONFIG_NAMESPACE,
-  (): JobManagerAppConfig => {
-    return {
-      serviceName: 'job-manager',
-      nodeEnv: (process.env.NODE_ENV as JobManagerAppConfig['nodeEnv']) || 'development',
-      logLevel: process.env.LOG_LEVEL || 'info',
-      http: {
-        port: Number(process.env.PORT),
-      },
-      transport: {
-        host: process.env.JOB_MANAGER_HOST || '127.0.0.1',
-        tcpPort: Number(process.env.JOB_MANAGER_TCP_PORT),
-      },
-      messaging: jobManagerMessagingBindings,
-      recovery: {
-        submittedDelayMs: Number(process.env.SUBMITTED_RECOVERY_DELAY_MS),
-        submittedLeaseSeconds: Number(process.env.SUBMITTED_RECOVERY_LEASE_SECONDS),
-      },
-    };
-  },
+function readTransportConfig(): JobManagerTransportConfig {
+  return {
+    host: process.env.JOB_MANAGER_HOST || '127.0.0.1',
+    tcpPort: Number(process.env.JOB_MANAGER_TCP_PORT),
+  };
+}
+
+function readMessagingConfig(): ScrapeMessagingConfig {
+  return readScrapeMessagingConfig(process.env);
+}
+
+function readRecoveryConfig(): JobManagerRecoveryConfig {
+  return {
+    submittedDelayMs: Number(process.env.SUBMITTED_RECOVERY_DELAY_MS),
+    submittedLeaseSeconds: Number(process.env.SUBMITTED_RECOVERY_LEASE_SECONDS),
+  };
+}
+
+export const jobManagerServiceConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.service`,
+  (): JobManagerServiceConfig => readServiceConfig(),
 );
+
+export const jobManagerTransportConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.transport`,
+  (): JobManagerTransportConfig => readTransportConfig(),
+);
+
+export const jobManagerMessagingConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.messaging`,
+  (): ScrapeMessagingConfig => readMessagingConfig(),
+);
+
+export const jobManagerRecoveryConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.recovery`,
+  (): JobManagerRecoveryConfig => readRecoveryConfig(),
+);
+
+export const jobManagerMessagingBindings = readMessagingConfig();
 
 export const jobManagerConfigModule: Promise<DynamicModule> = ConfigModule.forRoot({
   isGlobal: true,
   cache: true,
   validate: validateEnvironmentVariables,
-  load: [jobManagerConfig],
+  load: [
+    jobManagerServiceConfig,
+    jobManagerTransportConfig,
+    jobManagerMessagingConfig,
+    jobManagerRecoveryConfig,
+  ],
 });
-
-export function getAppConfig(configService: ConfigService): JobManagerAppConfig {
-  return configService.getOrThrow<JobManagerAppConfig>(APP_CONFIG_NAMESPACE);
-}

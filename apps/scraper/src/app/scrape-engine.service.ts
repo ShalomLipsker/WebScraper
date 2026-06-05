@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Inject } from '@nestjs/common';
+import { type ConfigType } from '@nestjs/config';
 import axios from 'axios';
 import { PinoLoggerService } from '@org/logger';
-import { getAppConfig, type ScraperConfig } from './app.config';
+import { scraperFetchConfig } from './app.config';
 
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
@@ -12,18 +13,16 @@ export class ScrapeEngineService {
   private nextRequestAt = 0;
   private readonly waitQueue: Array<() => void> = [];
   private userAgentIndex = 0;
-  private readonly appConfig: ScraperConfig;
 
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(scraperFetchConfig.KEY)
+    private readonly fetchConfig: ConfigType<typeof scraperFetchConfig>,
     private readonly logger: PinoLoggerService,
-  ) {
-    this.appConfig = getAppConfig(this.configService);
-  }
+  ) {}
 
   async fetchHtml(url: string): Promise<string> {
     let lastError: unknown;
-    const fetchConfig = this.appConfig.fetch;
+    const { fetchConfig } = this;
 
     for (let attempt = 1; attempt <= fetchConfig.maxRetryAttempts; attempt += 1) {
       const userAgent = this.nextUserAgent();
@@ -87,7 +86,7 @@ export class ScrapeEngineService {
   }
 
   private async acquireRequestSlot(): Promise<() => void> {
-    while (this.activeRequests >= this.appConfig.fetch.maxConcurrentRequests) {
+    while (this.activeRequests >= this.fetchConfig.maxConcurrentRequests) {
       await new Promise<void>((resolve) => {
         this.waitQueue.push(resolve);
       });
@@ -98,7 +97,7 @@ export class ScrapeEngineService {
     const waitMs = Math.max(0, this.nextRequestAt - Date.now());
     this.nextRequestAt =
       Math.max(this.nextRequestAt, Date.now())
-      + this.appConfig.fetch.minRequestIntervalMs;
+      + this.fetchConfig.minRequestIntervalMs;
 
     if (waitMs > 0) {
       await this.delay(waitMs);
@@ -119,7 +118,7 @@ export class ScrapeEngineService {
   }
 
   private nextUserAgent(): string {
-    const { userAgents } = this.appConfig.fetch;
+    const { userAgents } = this.fetchConfig;
     const userAgent = userAgents[this.userAgentIndex % userAgents.length];
 
     this.userAgentIndex += 1;
@@ -143,7 +142,7 @@ export class ScrapeEngineService {
     attempt: number,
     statusCode: number | null,
   ): number {
-    const baseRetryDelayMs = this.appConfig.fetch.baseRetryDelayMs;
+    const baseRetryDelayMs = this.fetchConfig.baseRetryDelayMs;
 
     if (statusCode === 429) {
       return baseRetryDelayMs * attempt * 2;

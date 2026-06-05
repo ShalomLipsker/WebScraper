@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { type ConfigType } from '@nestjs/config';
 import {
   BullMqMessageQueue,
   MessagingModule,
@@ -8,8 +8,8 @@ import {
 import { PersistenceModule } from '@org/persistence';
 import { StructuredLoggerModule } from '@org/logger';
 import {
-  getAppConfig,
   jobManagerConfigModule,
+  jobManagerMessagingConfig,
 } from './app.config';
 import { ScrapeJobsController } from './scrape-jobs.controller';
 import { ScrapeJobStatusUpdatesService } from './scrape-job-status-updates.service';
@@ -23,14 +23,15 @@ export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
     PersistenceModule.register(),
     MessagingModule.registerAsync({
       imports: [jobManagerConfigModule],
-      inject: [ConfigService],
+      inject: [jobManagerMessagingConfig.KEY],
       useFactory: (...args: unknown[]) => {
-        const [configService] = args as [ConfigService];
-        const appConfig = getAppConfig(configService);
+        const [messagingConfig] = args as [
+          ConfigType<typeof jobManagerMessagingConfig>,
+        ];
 
         return {
-          queueName: appConfig.messaging.jobQueueName,
-          defaultJobName: appConfig.messaging.jobPattern,
+          queueName: messagingConfig.jobQueueName,
+          defaultJobName: messagingConfig.jobPattern,
         };
       },
     }),
@@ -41,17 +42,18 @@ export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
     {
       provide: SCRAPE_STATUS_QUEUE_TOKEN,
       useFactory: (...args: unknown[]) => {
-        const [configService] = args as [ConfigService];
-        const appConfig = getAppConfig(configService);
+        const [messagingConfig] = args as [
+          ConfigType<typeof jobManagerMessagingConfig>,
+        ];
 
         return new BullMqMessageQueue(
-        resolveBullMqMessagingOptions({
-            queueName: appConfig.messaging.statusQueueName,
-            defaultJobName: appConfig.messaging.statusPattern,
-        }),
+          resolveBullMqMessagingOptions({
+            queueName: messagingConfig.statusQueueName,
+            defaultJobName: messagingConfig.statusPattern,
+          }),
         );
       },
-      inject: [ConfigService],
+      inject: [jobManagerMessagingConfig.KEY],
     },
     ScrapeJobsService,
     ScrapeJobStatusUpdatesService,

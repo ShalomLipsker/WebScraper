@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { type ConfigType } from '@nestjs/config';
 import {
   BullMqMessageQueue,
   MessagingModule,
@@ -8,8 +8,9 @@ import {
 import { StructuredLoggerModule } from '@org/logger';
 import { StorageModule } from '@org/storage';
 import {
-  getAppConfig,
+  scraperMessagingConfig,
   scraperConfigModule,
+  scraperStorageConfig,
 } from './app.config';
 import { ScrapeEngineService } from './scrape-engine.service';
 import { ScrapeWorkerService } from './scrape-worker.service';
@@ -21,36 +22,38 @@ export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
     scraperConfigModule,
     MessagingModule.registerAsync({
       imports: [scraperConfigModule],
-      inject: [ConfigService],
+      inject: [scraperMessagingConfig.KEY],
       useFactory: (...args: unknown[]) => {
-        const [configService] = args as [ConfigService];
-        const appConfig = getAppConfig(configService);
+        const [messagingConfig] = args as [
+          ConfigType<typeof scraperMessagingConfig>,
+        ];
 
         return {
-          queueName: appConfig.messaging.jobQueueName,
-          defaultJobName: appConfig.messaging.jobPattern,
+          queueName: messagingConfig.jobQueueName,
+          defaultJobName: messagingConfig.jobPattern,
         };
       },
     }),
     StorageModule.registerAsync({
       imports: [scraperConfigModule],
-      inject: [ConfigService],
+      inject: [scraperStorageConfig.KEY],
       useFactory: (...args: unknown[]) => {
-        const [configService] = args as [ConfigService];
-        const appConfig = getAppConfig(configService);
+        const [storageConfig] = args as [
+          ConfigType<typeof scraperStorageConfig>,
+        ];
 
         return {
-          region: appConfig.storage.region,
-          endpoint: appConfig.storage.endpoint,
-          forcePathStyle: appConfig.storage.forcePathStyle,
+          region: storageConfig.region,
+          endpoint: storageConfig.endpoint,
+          forcePathStyle: storageConfig.forcePathStyle,
           credentials:
-            appConfig.storage.accessKeyId && appConfig.storage.secretAccessKey
+            storageConfig.accessKeyId && storageConfig.secretAccessKey
               ? {
-                  accessKeyId: appConfig.storage.accessKeyId,
-                  secretAccessKey: appConfig.storage.secretAccessKey,
+                  accessKeyId: storageConfig.accessKeyId,
+                  secretAccessKey: storageConfig.secretAccessKey,
                 }
               : undefined,
-          defaultBucket: appConfig.storage.defaultBucket,
+          defaultBucket: storageConfig.defaultBucket,
         };
       },
     }),
@@ -61,17 +64,18 @@ export const SCRAPE_STATUS_QUEUE_TOKEN = Symbol('SCRAPE_STATUS_QUEUE_TOKEN');
     {
       provide: SCRAPE_STATUS_QUEUE_TOKEN,
       useFactory: (...args: unknown[]) => {
-        const [configService] = args as [ConfigService];
-        const appConfig = getAppConfig(configService);
+        const [messagingConfig] = args as [
+          ConfigType<typeof scraperMessagingConfig>,
+        ];
 
         return new BullMqMessageQueue(
           resolveBullMqMessagingOptions({
-            queueName: appConfig.messaging.statusQueueName,
-            defaultJobName: appConfig.messaging.statusPattern,
+            queueName: messagingConfig.statusQueueName,
+            defaultJobName: messagingConfig.statusPattern,
           }),
         );
       },
-      inject: [ConfigService],
+      inject: [scraperMessagingConfig.KEY],
     },
     ScrapeEngineService,
     ScrapeWorkerService,

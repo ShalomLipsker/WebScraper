@@ -1,32 +1,36 @@
 import { type DynamicModule } from '@nestjs/common';
-import { ConfigModule, ConfigService, registerAs } from '@nestjs/config';
+import { ConfigModule, registerAs } from '@nestjs/config';
 import { readScrapeMessagingConfig, type ScrapeMessagingConfig } from '@org/domain';
 import { plainToInstance, Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
 
 const APP_CONFIG_NAMESPACE = 'app';
+type ApiNodeEnv = 'development' | 'production' | 'test';
 
-export interface ApiConfig {
+export interface ApiHttpConfig {
+  port: number;
+}
+
+export interface ApiServiceConfig {
   serviceName: 'api';
-  nodeEnv: 'development' | 'production' | 'test';
+  nodeEnv: ApiNodeEnv;
   logLevel: string;
-  http: {
-    port: number;
-  };
-  jobManager: {
-    host: string;
-    tcpPort: number;
-  };
-  messaging: ScrapeMessagingConfig;
-  storage: {
-    region: string;
-    endpoint?: string;
-    forcePathStyle: boolean;
-    accessKeyId?: string;
-    secretAccessKey?: string;
-    defaultBucket?: string;
-    presignTtlSeconds: number;
-  };
+  http: ApiHttpConfig;
+}
+
+export interface ApiJobManagerConfig {
+  host: string;
+  tcpPort: number;
+}
+
+export interface ApiStorageConfig {
+  region: string;
+  endpoint?: string;
+  forcePathStyle: boolean;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  defaultBucket?: string;
+  presignTtlSeconds: number;
 }
 
 class EnvironmentVariables {
@@ -156,43 +160,73 @@ function validateEnvironmentVariables(
   };
 }
 
-export const apiMessagingBindings = readScrapeMessagingConfig(process.env);
-
-const apiConfig = registerAs(APP_CONFIG_NAMESPACE, (): ApiConfig => {
+function readServiceConfig(): ApiServiceConfig {
   return {
     serviceName: 'api',
-    nodeEnv: (process.env.NODE_ENV as ApiConfig['nodeEnv']) || 'development',
+    nodeEnv: (process.env.NODE_ENV as ApiNodeEnv) || 'development',
     logLevel: process.env.LOG_LEVEL || 'info',
     http: {
       port: Number(process.env.PORT),
     },
-    jobManager: {
-      host: process.env.JOB_MANAGER_HOST || '127.0.0.1',
-      tcpPort: Number(process.env.JOB_MANAGER_TCP_PORT),
-    },
-    messaging: apiMessagingBindings,
-    storage: {
-      region: process.env.S3_REGION || 'us-east-1',
-      endpoint: process.env.S3_ENDPOINT || undefined,
-      forcePathStyle: readBooleanEnv(process.env.S3_FORCE_PATH_STYLE, true),
-      accessKeyId: process.env.S3_ACCESS_KEY_ID || undefined,
-      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || undefined,
-      defaultBucket: process.env.S3_DEFAULT_BUCKET || undefined,
-      presignTtlSeconds: Number(process.env.SCRAPE_RESULT_PRESIGN_TTL_SECONDS),
-    },
   };
-});
+}
+
+function readJobManagerConfig(): ApiJobManagerConfig {
+  return {
+    host: process.env.JOB_MANAGER_HOST || '127.0.0.1',
+    tcpPort: Number(process.env.JOB_MANAGER_TCP_PORT),
+  };
+}
+
+function readMessagingConfig(): ScrapeMessagingConfig {
+  return readScrapeMessagingConfig(process.env);
+}
+
+function readStorageConfig(): ApiStorageConfig {
+  return {
+    region: process.env.S3_REGION || 'us-east-1',
+    endpoint: process.env.S3_ENDPOINT || undefined,
+    forcePathStyle: readBooleanEnv(process.env.S3_FORCE_PATH_STYLE, true),
+    accessKeyId: process.env.S3_ACCESS_KEY_ID || undefined,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || undefined,
+    defaultBucket: process.env.S3_DEFAULT_BUCKET || undefined,
+    presignTtlSeconds: Number(process.env.SCRAPE_RESULT_PRESIGN_TTL_SECONDS),
+  };
+}
+
+export const apiServiceConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.service`,
+  (): ApiServiceConfig => readServiceConfig(),
+);
+
+export const apiJobManagerConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.jobManager`,
+  (): ApiJobManagerConfig => readJobManagerConfig(),
+);
+
+export const apiMessagingConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.messaging`,
+  (): ScrapeMessagingConfig => readMessagingConfig(),
+);
+
+export const apiStorageConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.storage`,
+  (): ApiStorageConfig => readStorageConfig(),
+);
+
+export const apiMessagingBindings = readMessagingConfig();
 
 export const apiConfigModule: Promise<DynamicModule> = ConfigModule.forRoot({
   isGlobal: true,
   cache: true,
   validate: validateEnvironmentVariables,
-  load: [apiConfig],
+  load: [
+    apiServiceConfig,
+    apiJobManagerConfig,
+    apiMessagingConfig,
+    apiStorageConfig,
+  ],
 });
-
-export function getAppConfig(configService: ConfigService): ApiConfig {
-  return configService.getOrThrow<ApiConfig>(APP_CONFIG_NAMESPACE);
-}
 
 function readBooleanEnv(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value === '') {

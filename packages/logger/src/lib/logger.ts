@@ -94,7 +94,7 @@ export class StructuredLoggerModule {
               ...options,
               level:
                 options.level ??
-                configService.get<string>('app.logLevel', 'info'),
+                configService.get<string>('app.service.logLevel', 'info'),
             }),
         }),
       ],

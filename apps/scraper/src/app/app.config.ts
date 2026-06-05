@@ -1,5 +1,5 @@
 import { type DynamicModule } from '@nestjs/common';
-import { ConfigModule, ConfigService, registerAs } from '@nestjs/config';
+import { ConfigModule, registerAs } from '@nestjs/config';
 import { readScrapeMessagingConfig, type ScrapeMessagingConfig } from '@org/domain';
 import { plainToInstance, Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync } from 'class-validator';
@@ -11,31 +11,35 @@ const DEFAULT_SCRAPER_USER_AGENTS = [
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:139.0) Gecko/20100101 Firefox/139.0',
 ];
+type ScraperNodeEnv = 'development' | 'production' | 'test';
 
-export interface ScraperConfig {
+export interface ScraperHttpConfig {
+  port: number;
+}
+
+export interface ScraperServiceConfig {
   serviceName: 'scraper';
-  nodeEnv: 'development' | 'production' | 'test';
+  nodeEnv: ScraperNodeEnv;
   logLevel: string;
-  http: {
-    port: number;
-  };
-  storage: {
-    region: string;
-    endpoint?: string;
-    forcePathStyle: boolean;
-    accessKeyId?: string;
-    secretAccessKey?: string;
-    defaultBucket?: string;
-  };
-  messaging: ScrapeMessagingConfig;
-  fetch: {
-    requestTimeoutMs: number;
-    maxRetryAttempts: number;
-    maxConcurrentRequests: number;
-    minRequestIntervalMs: number;
-    baseRetryDelayMs: number;
-    userAgents: string[];
-  };
+  http: ScraperHttpConfig;
+}
+
+export interface ScraperStorageConfig {
+  region: string;
+  endpoint?: string;
+  forcePathStyle: boolean;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  defaultBucket?: string;
+}
+
+export interface ScraperFetchConfig {
+  requestTimeoutMs: number;
+  maxRetryAttempts: number;
+  maxConcurrentRequests: number;
+  minRequestIntervalMs: number;
+  baseRetryDelayMs: number;
+  userAgents: string[];
 }
 
 class EnvironmentVariables {
@@ -185,35 +189,64 @@ function validateEnvironmentVariables(
   };
 }
 
-export const scraperMessagingBindings = readScrapeMessagingConfig(process.env);
-
-const scraperConfig = registerAs(APP_CONFIG_NAMESPACE, (): ScraperConfig => {
+function readServiceConfig(): ScraperServiceConfig {
   return {
     serviceName: 'scraper',
-    nodeEnv: (process.env.NODE_ENV as ScraperConfig['nodeEnv']) || 'development',
+    nodeEnv: (process.env.NODE_ENV as ScraperNodeEnv) || 'development',
     logLevel: process.env.LOG_LEVEL || 'info',
     http: {
       port: Number(process.env.PORT),
     },
-    storage: {
-      region: process.env.S3_REGION || 'us-east-1',
-      endpoint: process.env.S3_ENDPOINT || undefined,
-      forcePathStyle: readBooleanEnv(process.env.S3_FORCE_PATH_STYLE, true),
-      accessKeyId: process.env.S3_ACCESS_KEY_ID || undefined,
-      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || undefined,
-      defaultBucket: process.env.S3_DEFAULT_BUCKET || undefined,
-    },
-    messaging: scraperMessagingBindings,
-    fetch: {
-      requestTimeoutMs: Number(process.env.SCRAPER_REQUEST_TIMEOUT_MS),
-      maxRetryAttempts: Number(process.env.SCRAPER_MAX_RETRY_ATTEMPTS),
-      maxConcurrentRequests: Number(process.env.SCRAPER_MAX_CONCURRENT_REQUESTS),
-      minRequestIntervalMs: Number(process.env.SCRAPER_MIN_REQUEST_INTERVAL_MS),
-      baseRetryDelayMs: Number(process.env.SCRAPER_BASE_RETRY_DELAY_MS),
-      userAgents: parseUserAgents(process.env.SCRAPER_USER_AGENTS),
-    },
   };
-});
+}
+
+function readStorageConfig(): ScraperStorageConfig {
+  return {
+    region: process.env.S3_REGION || 'us-east-1',
+    endpoint: process.env.S3_ENDPOINT || undefined,
+    forcePathStyle: readBooleanEnv(process.env.S3_FORCE_PATH_STYLE, true),
+    accessKeyId: process.env.S3_ACCESS_KEY_ID || undefined,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || undefined,
+    defaultBucket: process.env.S3_DEFAULT_BUCKET || undefined,
+  };
+}
+
+function readMessagingConfig(): ScrapeMessagingConfig {
+  return readScrapeMessagingConfig(process.env);
+}
+
+function readFetchConfig(): ScraperFetchConfig {
+  return {
+    requestTimeoutMs: Number(process.env.SCRAPER_REQUEST_TIMEOUT_MS),
+    maxRetryAttempts: Number(process.env.SCRAPER_MAX_RETRY_ATTEMPTS),
+    maxConcurrentRequests: Number(process.env.SCRAPER_MAX_CONCURRENT_REQUESTS),
+    minRequestIntervalMs: Number(process.env.SCRAPER_MIN_REQUEST_INTERVAL_MS),
+    baseRetryDelayMs: Number(process.env.SCRAPER_BASE_RETRY_DELAY_MS),
+    userAgents: parseUserAgents(process.env.SCRAPER_USER_AGENTS),
+  };
+}
+
+export const scraperServiceConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.service`,
+  (): ScraperServiceConfig => readServiceConfig(),
+);
+
+export const scraperStorageConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.storage`,
+  (): ScraperStorageConfig => readStorageConfig(),
+);
+
+export const scraperMessagingConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.messaging`,
+  (): ScrapeMessagingConfig => readMessagingConfig(),
+);
+
+export const scraperFetchConfig = registerAs(
+  `${APP_CONFIG_NAMESPACE}.fetch`,
+  (): ScraperFetchConfig => readFetchConfig(),
+);
+
+export const scraperMessagingBindings = readMessagingConfig();
 
 function parseUserAgents(value: string | undefined): string[] {
   const parsedUserAgents = value
@@ -240,9 +273,10 @@ export const scraperConfigModule: Promise<DynamicModule> = ConfigModule.forRoot(
   isGlobal: true,
   cache: true,
   validate: validateEnvironmentVariables,
-  load: [scraperConfig],
+  load: [
+    scraperServiceConfig,
+    scraperStorageConfig,
+    scraperMessagingConfig,
+    scraperFetchConfig,
+  ],
 });
-
-export function getAppConfig(configService: ConfigService): ScraperConfig {
-  return configService.getOrThrow<ScraperConfig>(APP_CONFIG_NAMESPACE);
-}

@@ -1,19 +1,27 @@
-import { ConfigService } from '@nestjs/config';
+import { type ConfigType } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { Transport } from '@nestjs/microservices';
 import { PinoLoggerService } from '@org/logger';
-import { getAppConfig } from './app/app.config';
+import {
+  jobManagerServiceConfig,
+  jobManagerTransportConfig,
+} from './app/app.config';
 import { AppModule } from './app/app.module';
 
 async function bootstrap() {
   const loggerApp = await NestFactory.create(AppModule, { bufferLogs: true });
-  const config = getAppConfig(loggerApp.get(ConfigService));
+  const serviceConfig = loggerApp.get<ConfigType<typeof jobManagerServiceConfig>>(
+    jobManagerServiceConfig.KEY,
+  );
+  const transportConfig = loggerApp.get<ConfigType<typeof jobManagerTransportConfig>>(
+    jobManagerTransportConfig.KEY,
+  );
   const logger = loggerApp.get(PinoLoggerService);
   const app = loggerApp.connectMicroservice({
     transport: Transport.TCP,
     options: {
-      host: config.transport.host,
-      port: config.transport.tcpPort,
+      host: transportConfig.host,
+      port: transportConfig.tcpPort,
     },
   });
 
@@ -22,10 +30,10 @@ async function bootstrap() {
   loggerApp.flushLogs();
 
   await loggerApp.startAllMicroservices();
-  await loggerApp.listen(config.http.port);
-  logger.log(`job-manager listening on http://localhost:${config.http.port}`);
+  await loggerApp.listen(serviceConfig.http.port);
+  logger.log(`job-manager listening on http://localhost:${serviceConfig.http.port}`);
   logger.log(
-    `job-manager TCP transport listening on ${config.transport.host}:${config.transport.tcpPort}`,
+    `job-manager TCP transport listening on ${transportConfig.host}:${transportConfig.tcpPort}`,
   );
 }
 

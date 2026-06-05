@@ -1,28 +1,26 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { type ConfigType } from '@nestjs/config';
 import type { IJobRepository, ScrapeJobStatusUpdatePayload } from '@org/domain';
 import { PinoLoggerService } from '@org/logger';
 import type { IMessageQueue, IMessageWorker } from '@org/messaging';
 import { JOB_REPOSITORY_TOKEN } from '@org/persistence';
-import { getAppConfig, type JobManagerAppConfig } from './app.config';
+import { jobManagerMessagingConfig } from './app.config';
 import { SCRAPE_STATUS_QUEUE_TOKEN } from './app.module';
 
 @Injectable()
 export class ScrapeJobStatusUpdatesService
   implements OnModuleInit, OnModuleDestroy {
   private worker: IMessageWorker | null = null;
-  private readonly appConfig: JobManagerAppConfig;
 
   constructor(
-    private readonly configService: ConfigService,
+    @Inject(jobManagerMessagingConfig.KEY)
+    private readonly messagingConfig: ConfigType<typeof jobManagerMessagingConfig>,
     @Inject(SCRAPE_STATUS_QUEUE_TOKEN)
     private readonly statusQueue: IMessageQueue,
     @Inject(JOB_REPOSITORY_TOKEN)
     private readonly jobRepository: IJobRepository,
     private readonly logger: PinoLoggerService,
-  ) {
-    this.appConfig = getAppConfig(this.configService);
-  }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     this.worker = await this.statusQueue.registerHandler<
@@ -30,7 +28,7 @@ export class ScrapeJobStatusUpdatesService
       { status: 'UPDATED' | 'IGNORED' }
     >(
       async (message) => {
-        if (message.name !== this.appConfig.messaging.statusPattern) {
+        if (message.name !== this.messagingConfig.statusPattern) {
           return { status: 'IGNORED' };
         }
 
