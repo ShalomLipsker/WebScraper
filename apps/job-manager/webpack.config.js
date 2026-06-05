@@ -6,7 +6,6 @@ const ignoredOptionalTransportPackages = [
   '@grpc/proto-loader',
   '@nestjs/websockets/socket-module',
   'amqp-connection-manager',
-  'amqplib',
   'kafkajs',
   'mqtt',
   'nats',

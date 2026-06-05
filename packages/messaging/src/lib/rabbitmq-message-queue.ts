@@ -8,13 +8,13 @@ import {
 } from '@nestjs/common';
 import { PinoLoggerService } from '@org/logger';
 import {
-  connect,
   type Channel,
   type ChannelModel,
   type ConfirmChannel,
   type ConsumeMessage,
   type Options,
 } from 'amqplib';
+import * as amqplib from 'amqplib';
 
 import {
   DEFAULT_JOB_ATTEMPTS,
@@ -103,7 +103,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       concurrency: options.concurrency ?? this.options.prefetchCount,
     });
 
-    const connection = await connect(this.options.url);
+    const connection = await amqplib.connect(this.options.url);
     const channel = await connection.createChannel();
     const resolvedConcurrency = options.concurrency ?? this.options.prefetchCount;
 
@@ -300,7 +300,7 @@ export class RabbitMqMessageQueue implements IMessageQueue, OnModuleDestroy {
       url: this.options.url,
     });
 
-    this.publishConnection = await connect(this.options.url);
+    this.publishConnection = await amqplib.connect(this.options.url);
     this.publishChannel = await this.publishConnection.createConfirmChannel();
 
     this.logger?.log({
