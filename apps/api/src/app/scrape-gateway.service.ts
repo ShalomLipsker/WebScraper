@@ -1,7 +1,9 @@
 import {
+  ConflictException,
   GatewayTimeoutException,
   Inject,
   Injectable,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
 import { ClientProxy } from '@nestjs/microservices';
@@ -15,6 +17,8 @@ import {
 import {
   resolveStorageLocation,
   S3StorageService,
+  StorageObjectMissingError,
+  StorageServiceError,
 } from '@org/storage';
 import { catchError, firstValueFrom, throwError, timeout } from 'rxjs';
 import { apiJobManagerConfig, apiMessagingConfig, apiStorageConfig } from './app.config';
@@ -71,7 +75,7 @@ export class ScrapeGatewayService {
       job.resultPath,
       this.storageConfig.defaultBucket,
     );
-    const object = await this.storageService.getObject(location);
+    const object = await this.readStoredResult(location.bucket, location.key, () => this.storageService.getObject(location));
 
     return {
       contentType: object.contentType,
@@ -86,6 +90,11 @@ export class ScrapeGatewayService {
     const location = resolveStorageLocation(
       job.resultPath,
       this.storageConfig.defaultBucket,
+    );
+    await this.readStoredResult(
+      location.bucket,
+      location.key,
+      () => this.storageService.assertObjectExists(location),
     );
     const presignedObject = await this.storageService.createPresignedGetUrl({
       ...location,
@@ -111,6 +120,18 @@ export class ScrapeGatewayService {
     );
   }
 
+  private async readStoredResult<TResult>(
+    bucket: string | undefined,
+    key: string,
+    read: () => Promise<TResult>,
+  ): Promise<TResult> {
+    try {
+      return await read();
+    } catch (error) {
+      throw this.mapStorageError(error, bucket, key);
+    }
+  }
+
   private mapJobManagerError(error: unknown): Error {
     if (isTimeoutError(error)) {
       return new GatewayTimeoutException(
@@ -120,6 +141,29 @@ export class ScrapeGatewayService {
 
     return new ServiceUnavailableException('Job manager is unavailable');
   }
+
+  private mapStorageError(
+    error: unknown,
+    bucket: string | undefined,
+    key: string,
+  ): Error {
+    if (error instanceof StorageObjectMissingError) {
+      return new ConflictException(
+        `Completed job result is unavailable because storage object ${error.bucket}/${error.key} is missing`,
+      );
+    }
+
+    if (error instanceof StorageServiceError) {
+      return new ServiceUnavailableException(
+        `Storage is unavailable while accessing completed job result ${error.bucket}/${error.key}`,
+      );
+    }
+
+    return new ServiceUnavailableException(
+      `Storage is unavailable while accessing completed job result ${(bucket ?? '<default>')}/${key}`,
+    );
+  }
+}
 
 function isTimeoutError(error: unknown): boolean {
   return Boolean(

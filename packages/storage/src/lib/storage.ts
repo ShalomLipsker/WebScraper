@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   DeleteObjectCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   type GetObjectCommandInput,
   PutObjectCommand,
   S3Client,
@@ -69,6 +70,28 @@ export function resolveStorageLocation(
   };
 }
 
+export class StorageObjectMissingError extends Error {
+  constructor(
+    readonly bucket: string,
+    readonly key: string,
+  ) {
+    super(`Storage object ${bucket}/${key} was not found.`);
+    this.name = 'StorageObjectMissingError';
+  }
+}
+
+export class StorageServiceError extends Error {
+  constructor(
+    readonly bucket: string,
+    readonly key: string,
+    message: string,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = 'StorageServiceError';
+  }
+}
+
 @Injectable()
 export class S3StorageService {
   constructor(
@@ -105,7 +128,13 @@ export class S3StorageService {
   ): Promise<RetrievedStorageObject> {
     const bucket = this.resolveBucket(input.bucket);
     const command = new GetObjectCommand(this.createGetObjectInput(input, bucket));
-    const response = await this.s3Client.send(command);
+    let response;
+
+    try {
+      response = await this.s3Client.send(command);
+    } catch (error) {
+      throw classifyStorageError(error, bucket, input.key);
+    }
 
     return {
       bucket,
@@ -116,6 +145,21 @@ export class S3StorageService {
       lastModified: response.LastModified,
       eTag: response.ETag,
     };
+  }
+
+  async assertObjectExists(input: { bucket?: string; key: string }): Promise<void> {
+    const bucket = this.resolveBucket(input.bucket);
+
+    try {
+      await this.s3Client.send(
+        new HeadObjectCommand({
+        Bucket: bucket,
+        Key: input.key,
+        }),
+      );
+    } catch (error) {
+      throw classifyStorageError(error, bucket, input.key);
+    }
   }
 
   async deleteObject(input: DeleteStorageObjectInput): Promise<void> {
@@ -231,4 +275,60 @@ function toReadableStream(
   throw new Error(
     `Storage object ${bucket}/${key} did not return a readable body stream.`,
   );
+}
+
+function classifyStorageError(
+  error: unknown,
+  bucket: string,
+  key: string,
+): Error {
+  const name = readErrorString(error, 'name');
+  const code = readErrorString(error, 'Code') ?? readErrorString(error, 'code');
+  const statusCode = readErrorStatusCode(error);
+
+  if (
+    name === 'NoSuchKey'
+    || name === 'NotFound'
+    || code === 'NoSuchKey'
+    || code === 'NotFound'
+    || statusCode === 404
+  ) {
+    return new StorageObjectMissingError(bucket, key);
+  }
+
+  return new StorageServiceError(
+    bucket,
+    key,
+    `Storage request for ${bucket}/${key} failed.`,
+    { cause: error },
+  );
+}
+
+function readErrorString(
+  value: unknown,
+  property: 'name' | 'Code' | 'code',
+): string | undefined {
+  if (!value || typeof value !== 'object' || !(property in value)) {
+    return undefined;
+  }
+
+  const candidate = (value as Record<string, unknown>)[property];
+
+  return typeof candidate === 'string' ? candidate : undefined;
+}
+
+function readErrorStatusCode(value: unknown): number | undefined {
+  if (!value || typeof value !== 'object' || !('$metadata' in value)) {
+    return undefined;
+  }
+
+  const metadata = value.$metadata;
+
+  if (!metadata || typeof metadata !== 'object' || !('httpStatusCode' in metadata)) {
+    return undefined;
+  }
+
+  const statusCode = metadata.httpStatusCode;
+
+  return typeof statusCode === 'number' ? statusCode : undefined;
 }
