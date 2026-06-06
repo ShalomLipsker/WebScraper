@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "simulate:scrape": "node ./scripts/simulate-scrape-request.mjs"
+    "simulate:scrape": "node ./scripts/simulate-scrape-request.mjs",
+    "stress:scrape": "node ./scripts/stress-scrape-request.mjs"
   },
   "private": true,
   "devDependencies": {

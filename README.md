@@ -192,6 +192,24 @@ For CLI help:
 node scripts/simulate-scrape-request.mjs --help
 ```
 
+## Run a durability stress test
+
+The repository also includes a stress runner that drives concurrent submit-and-poll traffic through the live API so you can pressure the job lifecycle under larger batches.
+
+```bash
+pnpm stress:scrape -- --jobs 250 --submit-concurrency 25 --poll-interval-ms 500
+```
+
+Useful variants:
+
+```bash
+pnpm stress:scrape -- --jobs 500 --submit-concurrency 50 --url-template 'https://example.com/?job={job}&ts={timestamp}'
+pnpm stress:scrape -- --jobs 100 --urls-file ./scripts/stress-urls.txt --url-padding-bytes 4096
+node scripts/stress-scrape-request.mjs --help
+```
+
+The runner exits non-zero if submissions fail, jobs time out, or the scrape pipeline returns failed jobs. It prints throughput, latency percentiles, status request counts, and sampled failures at the end.
+
 ## Workspace layout
 
 ```text
