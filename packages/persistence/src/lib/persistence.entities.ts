@@ -2,12 +2,14 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryColumn,
   UpdateDateColumn,
 } from 'typeorm';
 
 import type { JobStatus } from '@org/domain';
 
+@Index('idx_jobs_expires_at', ['expiresAt'])
 @Entity({ name: 'jobs' })
 export class JobEntity {
   @PrimaryColumn({ name: 'id', type: 'varchar', length: 128 })
@@ -35,6 +37,9 @@ export class JobEntity {
   declare updatedAt: Date;
 }
 
+@Index('idx_outbox_pending_dispatch', ['nextAttemptAt', 'createdAt'], {
+  where: 'published_at IS NULL',
+})
 @Entity({ name: 'outbox_messages' })
 export class OutboxMessageEntity {
   @PrimaryColumn({ name: 'id', type: 'varchar', length: 64 })
