@@ -1,15 +1,15 @@
-import { ValidationPipe } from '@nestjs/common';
-import { type ConfigType } from '@nestjs/config';
-import { NestFactory } from '@nestjs/core';
-import { PinoLoggerService } from '@org/logger';
-import { apiServiceConfig } from './app/app.config';
-import { AppModule } from './app/app.module';
+import './instrumentation';
 
 async function bootstrap() {
+  const [{ ValidationPipe }, { NestFactory }, { PinoLoggerService }, { apiServiceConfig }, { AppModule }] = await Promise.all([
+    import('@nestjs/common'),
+    import('@nestjs/core'),
+    import('@org/logger'),
+    import('./app/app.config'),
+    import('./app/app.module'),
+  ]);
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
-  const serviceConfig = app.get<ConfigType<typeof apiServiceConfig>>(
-    apiServiceConfig.KEY,
-  );
+  const serviceConfig = app.get(apiServiceConfig.KEY);
   const logger = app.get(PinoLoggerService);
 
   app.useLogger(logger);
@@ -31,4 +31,4 @@ async function bootstrap() {
   });
 }
 
-bootstrap();
+void bootstrap();

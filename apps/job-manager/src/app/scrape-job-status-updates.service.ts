@@ -4,6 +4,7 @@ import type { IJobRepository, ScrapeJobStatusUpdatePayload } from '@org/domain';
 import { PinoLoggerService } from '@org/logger';
 import type { IMessageQueue, IMessageWorker } from '@org/messaging';
 import { JOB_REPOSITORY_TOKEN } from '@org/persistence';
+import { extractTraceContextCarrier, withTraceContext } from '@org/tracing';
 import { jobManagerMessagingConfig } from './app.config';
 import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
 
@@ -28,50 +29,56 @@ export class ScrapeJobStatusUpdatesService
       { status: 'UPDATED' | 'IGNORED' }
     >(
       async (message) => {
-        if (message.name !== this.messagingConfig.statusPattern) {
-          return { status: 'IGNORED' };
-        }
+        const traceContext =
+          extractTraceContextCarrier(message.headers)
+          ?? message.data.traceContext;
 
-        const updateResult = await this.jobRepository.updateJobStatus(
-          message.data.jobId,
-          message.data.status,
-          {
-            resultPath: message.data.resultPath,
-            errorMessage: message.data.errorMessage,
-          },
-        );
+        return withTraceContext(traceContext, async () => {
+          if (message.name !== this.messagingConfig.statusPattern) {
+            return { status: 'IGNORED' };
+          }
 
-        const loggerContext = {
-          correlationId: message.data.correlationId,
-          jobId: message.data.jobId,
-          nextStatus: message.data.status,
-          outcome: updateResult.outcome,
-        };
+          const updateResult = await this.jobRepository.updateJobStatus(
+            message.data.jobId,
+            message.data.status,
+            {
+              resultPath: message.data.resultPath,
+              errorMessage: message.data.errorMessage,
+            },
+          );
 
-        switch (updateResult.outcome) {
-          case 'updated':
-            this.logger.log({
-              event: 'applied scrape status update',
-              ...loggerContext,
-              persistedStatus: updateResult.job.status,
-            });
-            break;
-          case 'blocked':
-            this.logger.warn({
-              event: 'ignored scrape status update',
-              ...loggerContext,
-              persistedStatus: updateResult.job.status,
-            });
-            break;
-          case 'not_found':
-            this.logger.warn({
-              event: 'ignored scrape status update',
-              ...loggerContext,
-            });
-            break;
-        }
+          const loggerContext = {
+            correlationId: message.data.correlationId,
+            jobId: message.data.jobId,
+            nextStatus: message.data.status,
+            outcome: updateResult.outcome,
+          };
 
-        return { status: 'UPDATED' };
+          switch (updateResult.outcome) {
+            case 'updated':
+              this.logger.log({
+                event: 'applied scrape status update',
+                ...loggerContext,
+                persistedStatus: updateResult.job.status,
+              });
+              break;
+            case 'blocked':
+              this.logger.warn({
+                event: 'ignored scrape status update',
+                ...loggerContext,
+                persistedStatus: updateResult.job.status,
+              });
+              break;
+            case 'not_found':
+              this.logger.warn({
+                event: 'ignored scrape status update',
+                ...loggerContext,
+              });
+              break;
+          }
+
+          return { status: 'UPDATED' };
+        });
       },
     );
   }

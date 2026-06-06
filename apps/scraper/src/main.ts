@@ -1,14 +1,14 @@
-import { type ConfigType } from '@nestjs/config';
-import { NestFactory } from '@nestjs/core';
-import { PinoLoggerService } from '@org/logger';
-import { scraperServiceConfig } from './app/app.config';
-import { AppModule } from './app/app.module';
+import './instrumentation';
 
 async function bootstrap() {
+  const [{ NestFactory }, { PinoLoggerService }, { scraperServiceConfig }, { AppModule }] = await Promise.all([
+    import('@nestjs/core'),
+    import('@org/logger'),
+    import('./app/app.config'),
+    import('./app/app.module'),
+  ]);
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
-  const serviceConfig = app.get<ConfigType<typeof scraperServiceConfig>>(
-    scraperServiceConfig.KEY,
-  );
+  const serviceConfig = app.get(scraperServiceConfig.KEY);
   const logger = app.get(PinoLoggerService);
 
   app.useLogger(logger);
@@ -23,4 +23,4 @@ async function bootstrap() {
   });
 }
 
-bootstrap();
+void bootstrap();

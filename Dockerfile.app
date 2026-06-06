@@ -19,6 +19,7 @@ COPY packages/logger/package.json packages/logger/package.json
 COPY packages/messaging/package.json packages/messaging/package.json
 COPY packages/persistence/package.json packages/persistence/package.json
 COPY packages/storage/package.json packages/storage/package.json
+COPY packages/tracing/package.json packages/tracing/package.json
 
 RUN pnpm install --frozen-lockfile
 

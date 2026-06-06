@@ -2,7 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
 import axios, { type AxiosProxyConfig, type AxiosRequestConfig } from 'axios';
+import type { TraceContextCarrier } from '@org/domain';
 import { PinoLoggerService, getDurationMs } from '@org/logger';
+import {
+  getActiveTraceContextCarrier,
+  getTraceContextHeaders,
+} from '@org/tracing';
 import { scraperFetchConfig } from './app.config';
 
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -23,7 +28,11 @@ export class ScrapeEngineService {
   async fetchHtml(
     url: string,
     proxy?: string,
-    context: { jobId?: string; correlationId?: string } = {},
+    context: {
+      jobId?: string;
+      correlationId?: string;
+      traceContext?: TraceContextCarrier;
+    } = {},
   ): Promise<string> {
     let lastError: unknown;
     const { fetchConfig } = this;
@@ -58,6 +67,9 @@ export class ScrapeEngineService {
           headers: {
             'user-agent': userAgent,
             accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            ...getTraceContextHeaders(
+              context.traceContext ?? getActiveTraceContextCarrier(),
+            ),
           },
           transformResponse: [(value: string) => value],
           validateStatus: (status: number) => status >= 200 && status < 400,

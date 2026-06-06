@@ -23,6 +23,12 @@ export interface ScrapeValidationConfig {
   maxUrlLength: number;
 }
 
+export interface TraceContextCarrier {
+  traceparent?: string;
+  tracestate?: string;
+  baggage?: string;
+}
+
 export function readScrapeMessagingConfig(
   env: Record<string, string | undefined>,
 ): ScrapeMessagingConfig {
@@ -60,11 +66,13 @@ export interface SubmitScrapeJobPayload {
   url: string;
   proxy?: string;
   correlationId?: string;
+  traceContext?: TraceContextCarrier;
 }
 
 export interface GetScrapeJobPayload {
   jobId: JobId;
   correlationId?: string;
+  traceContext?: TraceContextCarrier;
 }
 
 export interface SubmitScrapeJobAcknowledgement {
@@ -95,6 +103,7 @@ export interface ScrapeJobStatusUpdatePayload {
   resultPath?: string;
   errorMessage?: string;
   correlationId?: string;
+  traceContext?: TraceContextCarrier;
 }
 
 export type GetScrapeJobResult = ScrapeJobStatusView | null;

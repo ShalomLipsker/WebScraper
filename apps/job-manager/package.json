@@ -90,6 +90,7 @@
     "@org/messaging": "workspace:*",
     "@org/persistence": "workspace:*",
     "@org/storage": "workspace:*",
+    "@org/tracing": "workspace:*",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "reflect-metadata": "^0.1.13",

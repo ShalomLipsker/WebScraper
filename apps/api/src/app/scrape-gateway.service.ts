@@ -13,6 +13,7 @@ import {
   ScrapeJobStatusView,
   SubmitScrapeJobAcknowledgement,
   SubmitScrapeJobPayload,
+  type TraceContextCarrier,
 } from '@org/domain';
 import { PinoLoggerService, getDurationMs, toErrorFields } from '@org/logger';
 import {
@@ -64,11 +65,15 @@ export class ScrapeGatewayService {
     );
   }
 
-  getJobStatus(jobId: string, correlationId?: string): Promise<GetScrapeJobResult> {
+  getJobStatus(
+    jobId: string,
+    correlationId?: string,
+    traceContext?: TraceContextCarrier,
+  ): Promise<GetScrapeJobResult> {
     return this.sendToJobManager<ScrapeJobStatusView | null>(
       'loaded scrape job status from job-manager',
       this.messagingConfig.statusPattern,
-      { jobId, correlationId },
+      { jobId, correlationId, traceContext },
     );
   }
 

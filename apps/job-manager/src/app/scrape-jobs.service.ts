@@ -59,6 +59,7 @@ export class ScrapeJobsService {
           data: {
             url,
             correlationId: payload.correlationId,
+            traceContext: payload.traceContext,
             ...(proxy ? { proxy } : {}),
           },
         },

@@ -5,18 +5,9 @@
     "outDir": "dist",
     "tsBuildInfoFile": "dist/tsconfig.lib.tsbuildinfo",
     "emitDeclarationOnly": false,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    {
-      "path": "../logger/tsconfig.lib.json"
-    },
-    {
-      "path": "../domain/tsconfig.lib.json"
-    }
-  ]
+  "references": []
 }

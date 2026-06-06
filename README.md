@@ -31,6 +31,8 @@ Client
 | `postgres` | `5432` | Job persistence, transactional outbox, and recovery leases |
 | `rabbitmq` | `5672` AMQP, `15672` management | Work queue transport for scrape jobs and status updates |
 | `minio` | `9000` API, `9001` console | Stores scraped HTML objects |
+| `tempo` | `3200` API, `4317` gRPC OTLP, `4318` HTTP OTLP | Trace backend for Grafana |
+| `grafana` | `3003` | Local dashboards, logs, and traces UI |
 
 ## Scrape flow
 
@@ -127,6 +129,14 @@ docker compose up --build
 ```
 
 This starts PostgreSQL, RabbitMQ, MinIO, and the three apps with the default ports shown above. MinIO is initialized with a `scrape-results` bucket.
+
+Grafana observability endpoints after Compose starts:
+
+- Grafana: `http://localhost:3003` with `admin` / `admin`
+- Tempo API: `http://localhost:3200`
+- Loki API: `http://localhost:3100`
+
+Grafana is pre-provisioned with both Tempo and Loki datasources. Grafana Alloy discovers the Docker containers in the Compose stack, extracts structured fields from the JSON app logs, and ships them to Loki.
 
 Default local MinIO credentials:
 

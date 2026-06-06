@@ -21,6 +21,9 @@
       "path": "../../packages/messaging/tsconfig.lib.json"
     },
     {
+      "path": "../../packages/tracing/tsconfig.lib.json"
+    },
+    {
       "path": "../../packages/logger/tsconfig.lib.json"
     },
     {

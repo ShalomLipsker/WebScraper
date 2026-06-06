@@ -26,6 +26,9 @@
     },
     {
       "path": "./packages/storage"
+    },
+    {
+      "path": "./packages/tracing"
     }
   ]
 }

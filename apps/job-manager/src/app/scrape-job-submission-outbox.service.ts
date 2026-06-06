@@ -1,11 +1,15 @@
 import { Inject, Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
 import { PinoLoggerService } from '@org/logger';
+import type { TraceContextCarrier } from '@org/domain';
 import type { IMessageQueue } from '@org/messaging';
 import {
   MESSAGE_QUEUE_TOKEN,
+  RABBITMQ_BAGGAGE_HEADER,
   RABBITMQ_CORRELATION_ID_HEADER,
   RABBITMQ_DEDUPLICATION_HEADER,
+  RABBITMQ_TRACEPARENT_HEADER,
+  RABBITMQ_TRACESTATE_HEADER,
 } from '@org/messaging';
 import {
   OUTBOX_MESSAGE_STORE_TOKEN,
@@ -88,6 +92,7 @@ export class ScrapeJobSubmissionOutboxService
     message: ClaimedOutboxMessage,
   ): Promise<void> {
     const correlationId = getCorrelationIdFromPayload(message.message.data);
+    const traceContext = getTraceContextFromPayload(message.message.data);
     const nextAttempt = message.attemptCount + 1;
     const loggerContext = {
       correlationId,
@@ -108,6 +113,15 @@ export class ScrapeJobSubmissionOutboxService
             [RABBITMQ_DEDUPLICATION_HEADER]: message.message.id,
             ...(correlationId
               ? { [RABBITMQ_CORRELATION_ID_HEADER]: correlationId }
+              : {}),
+            ...(traceContext?.traceparent
+              ? { [RABBITMQ_TRACEPARENT_HEADER]: traceContext.traceparent }
+              : {}),
+            ...(traceContext?.tracestate
+              ? { [RABBITMQ_TRACESTATE_HEADER]: traceContext.tracestate }
+              : {}),
+            ...(traceContext?.baggage
+              ? { [RABBITMQ_BAGGAGE_HEADER]: traceContext.baggage }
               : {}),
           },
         }),
@@ -168,6 +182,30 @@ function getCorrelationIdFromPayload(payload: unknown): string | undefined {
   const correlationId = (payload as { correlationId?: unknown }).correlationId;
 
   return typeof correlationId === 'string' ? correlationId : undefined;
+}
+
+function getTraceContextFromPayload(
+  payload: unknown,
+): TraceContextCarrier | undefined {
+  if (!payload || typeof payload !== 'object') {
+    return undefined;
+  }
+
+  const traceContext = (payload as { traceContext?: TraceContextCarrier }).traceContext;
+
+  if (!traceContext) {
+    return undefined;
+  }
+
+  if (
+    typeof traceContext.traceparent !== 'string'
+    && typeof traceContext.tracestate !== 'string'
+    && typeof traceContext.baggage !== 'string'
+  ) {
+    return undefined;
+  }
+
+  return traceContext;
 }
 
 function toErrorMessage(error: unknown): string {

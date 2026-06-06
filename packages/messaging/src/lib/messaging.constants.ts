@@ -15,3 +15,6 @@ export const DEFAULT_JOB_HISTORY_COUNT = 1_000;
 export const DEFAULT_WORKER_CONCURRENCY = 1;
 export const RABBITMQ_DEDUPLICATION_HEADER = 'x-deduplication-header';
 export const RABBITMQ_CORRELATION_ID_HEADER = 'x-correlation-id';
+export const RABBITMQ_TRACEPARENT_HEADER = 'traceparent';
+export const RABBITMQ_TRACESTATE_HEADER = 'tracestate';
+export const RABBITMQ_BAGGAGE_HEADER = 'baggage';

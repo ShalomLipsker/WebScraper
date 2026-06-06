@@ -11,6 +11,12 @@ import {
   type ScrapeJobStatusUpdatePayload,
   type SubmitScrapeJobPayload,
 } from '@org/domain';
+import {
+  extractTraceContextCarrier,
+  getActiveTraceContextCarrier,
+  getTraceContextHeaders,
+  withTraceContext,
+} from '@org/tracing';
 import { scraperMessagingConfig } from './app.config';
 import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
 import { ScrapeEngineService } from './scrape-engine.service';
@@ -37,105 +43,114 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
       ScrapeJobCompletionResult
     >(
       async (message) => {
-        const startedAt = Date.now();
+        const incomingTraceContext =
+          extractTraceContextCarrier(message.headers)
+          ?? message.data.traceContext;
 
-        if (message.name !== this.messagingConfig.jobPattern) {
-          return { status: 'IGNORED' };
-        }
+        return withTraceContext(incomingTraceContext, async () => {
+          const startedAt = Date.now();
 
-        await this.publishStatusUpdateOrThrow({
-          jobId: message.id,
-          correlationId: message.correlationId,
-          status: 'PROCESSING',
-        });
-
-        const loggerContext = {
-          correlationId: message.correlationId,
-          jobId: message.id,
-          messageName: message.name,
-          sourceUrl: message.data.url,
-          usedProxy: Boolean(message.data.proxy),
-        }
-
-        try {
-          const html = await this.scrapeEngineService.fetchHtml(
-            message.data.url,
-            message.data.proxy,
-            {
-              jobId: message.id,
-              correlationId: message.correlationId,
-            },
-          );
-          const resultKey = createScrapeResultKey(message.id);
-
-          await this.storageService.putText({
-            key: resultKey,
-            body: html,
-            contentType: 'text/html; charset=utf-8',
-            metadata: {
-              jobId: message.id,
-              sourceUrl: message.data.url,
-            },
-          });
+          if (message.name !== this.messagingConfig.jobPattern) {
+            return { status: 'IGNORED' };
+          }
 
           await this.publishStatusUpdateOrThrow({
             jobId: message.id,
             correlationId: message.correlationId,
-            status: 'COMPLETED',
-            resultPath: resultKey,
+            status: 'PROCESSING',
+            traceContext: getActiveTraceContextCarrier() ?? incomingTraceContext,
           });
 
-          this.logger.log({
-            ...loggerContext,
-            event: 'completed scrape job',
-            htmlLength: html.length,
-            resultPath: resultKey,
-            durationMs: getDurationMs(startedAt),
-            outcome: 'completed',
-          });
-
-          return {
-            status: 'COMPLETED' as const,
-            resultPath: resultKey,
+          const loggerContext = {
+            correlationId: message.correlationId,
+            jobId: message.id,
+            messageName: message.name,
+            sourceUrl: message.data.url,
+            usedProxy: Boolean(message.data.proxy),
           };
-        } catch (error: unknown) {
-          if (error instanceof StatusPublishError) {
+
+          try {
+            const html = await this.scrapeEngineService.fetchHtml(
+              message.data.url,
+              message.data.proxy,
+              {
+                jobId: message.id,
+                correlationId: message.correlationId,
+              },
+            );
+            const resultKey = createScrapeResultKey(message.id);
+
+            await this.storageService.putText({
+              key: resultKey,
+              body: html,
+              contentType: 'text/html; charset=utf-8',
+              metadata: {
+                jobId: message.id,
+                sourceUrl: message.data.url,
+              },
+            });
+
+            await this.publishStatusUpdateOrThrow({
+              jobId: message.id,
+              correlationId: message.correlationId,
+              status: 'COMPLETED',
+              resultPath: resultKey,
+              traceContext: getActiveTraceContextCarrier() ?? incomingTraceContext,
+            });
+
+            this.logger.log({
+              ...loggerContext,
+              event: 'completed scrape job',
+              htmlLength: html.length,
+              resultPath: resultKey,
+              durationMs: getDurationMs(startedAt),
+              outcome: 'completed',
+            });
+
+            return {
+              status: 'COMPLETED' as const,
+              resultPath: resultKey,
+            };
+          } catch (error: unknown) {
+            if (error instanceof StatusPublishError) {
+              this.logger.error({
+                ...loggerContext,
+                event: 'failed to publish scrape job status',
+
+                errorMessage: error.message,
+              });
+
+              throw error;
+            }
+
+            const errorMessage = toErrorMessage(error);
+
+            if (message.attemptsMade + 1 >= message.maxAttempts) {
+              try {
+                await this.publishStatusUpdate({
+                  jobId: message.id,
+                  correlationId: message.correlationId,
+                  status: 'FAILED',
+                  errorMessage,
+                  traceContext: getActiveTraceContextCarrier() ?? incomingTraceContext,
+                });
+              } catch (publishError: unknown) {
+                throw new StatusPublishError(toErrorMessage(publishError));
+              }
+            }
+
             this.logger.error({
               ...loggerContext,
-              event: 'failed to publish scrape job status',
-
-              errorMessage: error.message,
+              event: 'failed scrape job',
+              attemptsMade: message.attemptsMade,
+              maxAttempts: message.maxAttempts,
+              errorMessage,
+              durationMs: getDurationMs(startedAt),
             });
 
             throw error;
           }
-
-          const errorMessage = toErrorMessage(error);
-
-          if (message.attemptsMade + 1 >= message.maxAttempts) {
-            try {
-              await this.publishStatusUpdate({
-                jobId: message.id,
-                correlationId: message.correlationId,
-                status: 'FAILED',
-                errorMessage,
-              });
-            } catch (publishError: unknown) {
-              throw new StatusPublishError(toErrorMessage(publishError));
-            }
-          }
-
-          this.logger.error({
-            ...loggerContext,
-            event: 'failed scrape job',
-            attemptsMade: message.attemptsMade,
-            maxAttempts: message.maxAttempts,
-            errorMessage,
-            durationMs: getDurationMs(startedAt),
-          });
-
-          throw error;
-        }
+        });
       },
     );
 
@@ -164,6 +179,7 @@ export class ScrapeWorkerService implements OnModuleInit, OnModuleDestroy {
       data: payload,
     }, {
       correlationId: payload.correlationId,
+      headers: getTraceContextHeaders(payload.traceContext),
     });
   }
 

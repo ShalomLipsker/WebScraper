@@ -18,6 +18,10 @@ import type {
   SubmitScrapeJobAcknowledgement,
 } from '@org/domain';
 import { PinoLoggerService, getRequestId } from '@org/logger';
+import {
+  extractTraceContextCarrier,
+  getActiveTraceContextCarrier,
+} from '@org/tracing';
 import { SubmitScrapeRequestDto } from './dto/submit-scrape-request.dto';
 import {
   type CompletedScrapeJobAccessView,
@@ -38,9 +42,13 @@ export class ScrapeController {
     @Body() payload: SubmitScrapeRequestDto,
   ): Promise<SubmitScrapeJobAcknowledgement> {
     const correlationId = getRequestId(request);
+    const traceContext =
+      getActiveTraceContextCarrier()
+      ?? extractTraceContextCarrier(request.headers);
     const acknowledgement = await this.scrapeGatewayService.submitJob({
       ...payload,
       correlationId,
+      traceContext,
     });
 
     this.logger.log({
@@ -62,7 +70,10 @@ export class ScrapeController {
     @Param('jobId') jobId: string,
   ): Promise<ScrapeJobStatusView> {
     const requestId = getRequestId(request);
-    const job = await this.getExistingJobStatus(jobId, requestId);
+    const traceContext =
+      getActiveTraceContextCarrier()
+      ?? extractTraceContextCarrier(request.headers);
+    const job = await this.getExistingJobStatus(jobId, requestId, traceContext);
 
     this.logger.log({
       event: 'loaded scrape job status',
@@ -82,7 +93,10 @@ export class ScrapeController {
     @Res({ passthrough: true }) response: HeaderWritableResponse,
   ): Promise<StreamableFile> {
     const requestId = getRequestId(request);
-    const job = await this.getCompletedJobStatus(jobId, requestId);
+    const traceContext =
+      getActiveTraceContextCarrier()
+      ?? extractTraceContextCarrier(request.headers);
+    const job = await this.getCompletedJobStatus(jobId, requestId, traceContext);
     const object = await this.scrapeGatewayService.getCompletedJobStream(job);
 
     response.setHeader('Cache-Control', 'no-store');
@@ -111,7 +125,10 @@ export class ScrapeController {
     @Param('jobId') jobId: string,
   ): Promise<CompletedScrapeJobAccessView> {
     const requestId = getRequestId(request);
-    const job = await this.getCompletedJobStatus(jobId, requestId);
+    const traceContext =
+      getActiveTraceContextCarrier()
+      ?? extractTraceContextCarrier(request.headers);
+    const job = await this.getCompletedJobStatus(jobId, requestId, traceContext);
 
     const result = await this.scrapeGatewayService.getCompletedJobPresignedUrl(job);
 
@@ -129,8 +146,13 @@ export class ScrapeController {
   private async getExistingJobStatus(
     jobId: string,
     correlationId?: string,
+    traceContext?: import('@org/domain').TraceContextCarrier,
   ): Promise<ScrapeJobStatusView> {
-    const job = await this.scrapeGatewayService.getJobStatus(jobId, correlationId);
+    const job = await this.scrapeGatewayService.getJobStatus(
+      jobId,
+      correlationId,
+      traceContext,
+    );
 
     if (!job) {
       throw new NotFoundException(`Job ${jobId} was not found`);
@@ -142,8 +164,9 @@ export class ScrapeController {
   private async getCompletedJobStatus(
     jobId: string,
     correlationId?: string,
+    traceContext?: import('@org/domain').TraceContextCarrier,
   ): Promise<ScrapeJobStatusView> {
-    const job = await this.getExistingJobStatus(jobId, correlationId);
+    const job = await this.getExistingJobStatus(jobId, correlationId, traceContext);
 
     if (job.status !== 'COMPLETED') {
       throw new ConflictException(

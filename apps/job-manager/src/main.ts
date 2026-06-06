@@ -1,21 +1,16 @@
-import { type ConfigType } from '@nestjs/config';
-import { NestFactory } from '@nestjs/core';
-import { Transport } from '@nestjs/microservices';
-import { PinoLoggerService } from '@org/logger';
-import {
-  jobManagerServiceConfig,
-  jobManagerTransportConfig,
-} from './app/app.config';
-import { AppModule } from './app/app.module';
+import './instrumentation';
 
 async function bootstrap() {
+  const [{ NestFactory }, { Transport }, { PinoLoggerService }, { jobManagerServiceConfig, jobManagerTransportConfig }, { AppModule }] = await Promise.all([
+    import('@nestjs/core'),
+    import('@nestjs/microservices'),
+    import('@org/logger'),
+    import('./app/app.config'),
+    import('./app/app.module'),
+  ]);
   const loggerApp = await NestFactory.create(AppModule, { bufferLogs: true });
-  const serviceConfig = loggerApp.get<ConfigType<typeof jobManagerServiceConfig>>(
-    jobManagerServiceConfig.KEY,
-  );
-  const transportConfig = loggerApp.get<ConfigType<typeof jobManagerTransportConfig>>(
-    jobManagerTransportConfig.KEY,
-  );
+  const serviceConfig = loggerApp.get(jobManagerServiceConfig.KEY);
+  const transportConfig = loggerApp.get(jobManagerTransportConfig.KEY);
   const logger = loggerApp.get(PinoLoggerService);
   const app = loggerApp.connectMicroservice({
     transport: Transport.TCP,
@@ -46,4 +41,4 @@ async function bootstrap() {
   });
 }
 
-bootstrap();
+void bootstrap();
