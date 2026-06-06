@@ -1,0 +1,83 @@
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "compose_logs" {
+  targets = discovery.docker.containers.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    action        = "keep"
+    regex         = "webscraper"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "compose_project"
+  }
+}
+
+loki.source.docker "compose" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.compose_logs.output
+  forward_to = [loki.process.compose.receiver]
+  labels     = {}
+}
+
+loki.process "compose" {
+  forward_to = [loki.write.local.receiver]
+
+  stage.json {
+    expressions = {
+      level         = "level",
+      service_field = "service",
+      event         = "event",
+      correlationId = "correlationId",
+      requestId     = "requestId",
+      jobId         = "jobId",
+      durationMs    = "durationMs",
+      outcome       = "outcome",
+      errorName     = "errorName",
+      errorMessage  = "errorMessage",
+      statusCode    = "statusCode",
+      retryDelayMs  = "retryDelayMs",
+      attempt       = "attempt",
+      attemptsMade  = "attemptsMade",
+      maxAttempts   = "maxAttempts",
+      queueName     = "queueName",
+      resultPath    = "resultPath",
+      usedProxy     = "usedProxy",
+      proxy         = "proxy",
+      userAgent     = "userAgent",
+      htmlLength    = "htmlLength",
+      jobPattern    = "jobPattern",
+      statusPattern = "statusPattern",
+      msg           = "msg",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level         = "",
+      service_field = "",
+      event         = "",
+    }
+  }
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

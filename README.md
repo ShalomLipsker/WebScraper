@@ -32,6 +32,7 @@ Client
 | `rabbitmq` | `5672` AMQP, `15672` management | Work queue transport for scrape jobs and status updates |
 | `minio` | `9000` API, `9001` console | Stores scraped HTML objects |
 | `tempo` | `3200` API, `4317` gRPC OTLP, `4318` HTTP OTLP | Trace backend for Grafana |
+| `loki` | `3100` | Log backend for Grafana |
 | `grafana` | `3003` | Local dashboards, logs, and traces UI |
 
 ## Scrape flow
