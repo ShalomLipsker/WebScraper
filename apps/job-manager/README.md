@@ -1,12 +1,13 @@
 # Job Manager
 
-The `job-manager` app owns scrape job orchestration. It receives internal submit and status messages, hashes URLs into deterministic job IDs, persists job state in PostgreSQL, publishes work through a transactional outbox to RabbitMQ, and reconciles stale or expired jobs.
+The `job-manager` app owns scrape job orchestration. It receives internal submit and status messages, hashes URLs into deterministic job IDs, persists job state in PostgreSQL, publishes work through a transactional outbox to RabbitMQ, and handles cleanup of expired jobs and storage assets.
 
 ## Responsibilities
 
 - Deduplicate jobs by SHA-256 hash of the URL
 - Persist lifecycle state in the job repository
 - Publish scrape work through the outbox dispatcher
+- Delete published outbox records after their configured retention TTL
 - Consume worker status updates from the status queue
 - Recover stale `SUBMITTED`, `ENQUEUED`, and `PROCESSING` jobs
 - Delete expired jobs and associated storage assets with distributed-safe leases

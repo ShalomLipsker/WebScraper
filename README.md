@@ -26,7 +26,7 @@ Client
 | Service | Port | Responsibility |
 | --- | --- | --- |
 | `api` | `3000` | Accepts scrape requests and serves job status and results |
-| `job-manager` | `3001` HTTP, `4001` TCP | Deduplicates jobs, persists lifecycle state, dispatches outbox messages, and reconciles stale or expired jobs |
+| `job-manager` | `3001` HTTP, `4001` TCP | Deduplicates jobs, persists lifecycle state, dispatches outbox messages, and handles expired job cleanup |
 | `scraper` | `3002` | Runs the worker that fetches HTML and publishes status updates |
 | `postgres` | `5432` | Job persistence, transactional outbox, and recovery leases |
 | `rabbitmq` | `5672` AMQP, `15672` management | Work queue transport for scrape jobs and status updates |

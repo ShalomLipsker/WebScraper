@@ -4,8 +4,8 @@ PostgreSQL-backed persistence primitives for the scraping pipeline.
 
 This package provides the NestJS module and repository implementation used to
 store and update scrape job metadata behind the shared `IJobRepository`
-contract from `@org/domain`, along with the transactional outbox and recovery
-lease stores used by `job-manager`.
+contract from `@org/domain`, along with the transactional outbox support used
+by `job-manager`.
 
 ## Usage
 
@@ -57,4 +57,3 @@ Run `pnpm nx build persistence` to build the library.
 ### Notes
 
 - Job submission can be coordinated through the exported submission and outbox store tokens for transactional create-and-publish flows.
-- Recovery leases are stored in PostgreSQL so multiple `job-manager` instances can coordinate cleanup and recovery work safely.

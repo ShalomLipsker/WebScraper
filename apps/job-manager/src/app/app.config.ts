@@ -52,6 +52,8 @@ export interface JobManagerRabbitMqConfig {
 export interface JobManagerOutboxConfig {
   pollIntervalMs: number;
   batchSize: number;
+  cleanupIntervalMs: number;
+  cleanupTtlMs: number;
   dispatchConcurrency: number;
   maxAttempts: number;
   publishTimeoutMs: number;
@@ -61,7 +63,6 @@ export interface JobManagerOutboxConfig {
 export interface JobManagerCleanupConfig {
   intervalMinutes: number;
   batchSize: number;
-  leaseSeconds: number;
 }
 
 class EnvironmentVariables {
@@ -142,6 +143,18 @@ class EnvironmentVariables {
   OUTBOX_BATCH_SIZE: number = 50;
 
   @IsInt()
+  @Min(1_000)
+  @IsOptional()
+  @Transform(({ value }) => (value ? Number(value) : undefined))
+  OUTBOX_CLEANUP_INTERVAL_MS: number = 60_000;
+
+  @IsInt()
+  @Min(1_000)
+  @IsOptional()
+  @Transform(({ value }) => (value ? Number(value) : undefined))
+  OUTBOX_CLEANUP_TTL_MS: number = 86_400_000;
+
+  @IsInt()
   @Min(1)
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))
@@ -177,12 +190,6 @@ class EnvironmentVariables {
   @IsOptional()
   @Transform(({ value }) => (value ? Number(value) : undefined))
   JOB_CLEANUP_BATCH_SIZE: number = 100;
-
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  @Transform(({ value }) => (value ? Number(value) : undefined))
-  JOB_CLEANUP_LEASE_SECONDS: number = 60;
 
   @IsString()
   @IsOptional()
@@ -251,6 +258,10 @@ function validateEnvironmentVariables(
     POSTGRES_SYNCHRONIZE: String(validatedConfig.POSTGRES_SYNCHRONIZE),
     OUTBOX_POLL_INTERVAL_MS: String(validatedConfig.OUTBOX_POLL_INTERVAL_MS),
     OUTBOX_BATCH_SIZE: String(validatedConfig.OUTBOX_BATCH_SIZE),
+    OUTBOX_CLEANUP_INTERVAL_MS: String(
+      validatedConfig.OUTBOX_CLEANUP_INTERVAL_MS,
+    ),
+    OUTBOX_CLEANUP_TTL_MS: String(validatedConfig.OUTBOX_CLEANUP_TTL_MS),
     OUTBOX_DISPATCH_CONCURRENCY: String(
       validatedConfig.OUTBOX_DISPATCH_CONCURRENCY,
     ),
@@ -265,7 +276,6 @@ function validateEnvironmentVariables(
       validatedConfig.JOB_CLEANUP_INTERVAL_MINUTES,
     ),
     JOB_CLEANUP_BATCH_SIZE: String(validatedConfig.JOB_CLEANUP_BATCH_SIZE),
-    JOB_CLEANUP_LEASE_SECONDS: String(validatedConfig.JOB_CLEANUP_LEASE_SECONDS),
     S3_REGION: validatedConfig.S3_REGION,
     S3_ENDPOINT: validatedConfig.S3_ENDPOINT,
     S3_FORCE_PATH_STYLE: String(validatedConfig.S3_FORCE_PATH_STYLE),
@@ -334,6 +344,11 @@ function readOutboxConfig(): JobManagerOutboxConfig {
   return {
     pollIntervalMs: readNumberEnv(process.env.OUTBOX_POLL_INTERVAL_MS, 1_000),
     batchSize: readNumberEnv(process.env.OUTBOX_BATCH_SIZE, 50),
+    cleanupIntervalMs: readNumberEnv(
+      process.env.OUTBOX_CLEANUP_INTERVAL_MS,
+      60_000,
+    ),
+    cleanupTtlMs: readNumberEnv(process.env.OUTBOX_CLEANUP_TTL_MS, 86_400_000),
     dispatchConcurrency: readNumberEnv(
       process.env.OUTBOX_DISPATCH_CONCURRENCY,
       10,
@@ -354,12 +369,7 @@ function readCleanupConfig(): JobManagerCleanupConfig {
   return {
     intervalMinutes: readNumberEnv(process.env.JOB_CLEANUP_INTERVAL_MINUTES, 1),
     batchSize: readNumberEnv(process.env.JOB_CLEANUP_BATCH_SIZE, 100),
-    leaseSeconds: readNumberEnv(process.env.JOB_CLEANUP_LEASE_SECONDS, 60),
   };
-}
-
-export function getCleanupCronExpression(): string {
-  return `0 */${readCleanupConfig().intervalMinutes} * * * *`;
 }
 
 export const jobManagerServiceConfig = registerAs(

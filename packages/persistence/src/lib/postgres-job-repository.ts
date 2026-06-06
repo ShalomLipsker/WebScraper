@@ -15,7 +15,7 @@ import {
   DEFAULT_JOB_RETENTION_SECONDS,
   POSTGRES_PERSISTENCE_OPTIONS_TOKEN,
 } from './persistence.constants.js';
-import { JobEntity, JobMaintenanceLeaseEntity } from './persistence.entities.js';
+import { JobEntity } from './persistence.entities.js';
 import type { PostgresPersistenceModuleOptions } from './persistence.types.js';
 
 @Injectable()
@@ -128,18 +128,8 @@ export class PostgresJobRepository implements IJobRepository {
   }
 
   async deleteJob(id: string): Promise<boolean> {
-    const deleted = await this.jobsRepository.manager.transaction(async (entityManager) => {
-      const jobsRepository = entityManager.getRepository(JobEntity);
-      const leasesRepository = entityManager.getRepository(JobMaintenanceLeaseEntity);
-
-      const deleteResult = await jobsRepository.delete({ id });
-      await leasesRepository.delete([
-        { id },
-        { id: `cleanup:job:${id}` },
-      ]);
-
-      return (deleteResult.affected ?? 0) > 0;
-    });
+    const deleteResult = await this.jobsRepository.delete({ id });
+    const deleted = (deleteResult.affected ?? 0) > 0;
 
     this.logger?.log({
       event: deleted ? 'deleted job record' : 'job record already missing',
@@ -148,6 +138,70 @@ export class PostgresJobRepository implements IJobRepository {
     });
 
     return deleted;
+  }
+
+  async markJobExpired(id: string): Promise<UpdateJobStatusResult> {
+    const updateResult = await this.jobsRepository
+      .createQueryBuilder()
+      .update(JobEntity)
+      .set({
+        status: 'EXPIRED',
+      })
+      .returning('*')
+      .where('id = :id', { id })
+      .andWhere(
+        '(status NOT IN (:...terminalStatuses) OR status = :expiredStatus)',
+        {
+          terminalStatuses: ['COMPLETED', 'FAILED', 'EXPIRED'],
+          expiredStatus: 'EXPIRED',
+        },
+      )
+      .execute();
+
+    if (updateResult.raw.length > 0) {
+      const updatedJob = toJobMetadata(updateResult.raw[0] as JobEntity);
+
+      this.logger?.log({
+        event: 'marked job expired',
+        jobId: updatedJob.id,
+        status: updatedJob.status,
+        outcome: 'updated',
+      });
+
+      return {
+        outcome: 'updated',
+        job: updatedJob,
+      };
+    }
+
+    const existingJob = await this.jobsRepository.findOne({ where: { id } });
+
+    if (!existingJob) {
+      this.logger?.warn({
+        event: 'failed to mark missing job expired',
+        jobId: id,
+        status: 'EXPIRED',
+        outcome: 'not_found',
+      });
+
+      return {
+        outcome: 'not_found',
+        job: null,
+      };
+    }
+
+    this.logger?.warn({
+      event: 'blocked job expiration transition',
+      jobId: id,
+      status: 'EXPIRED',
+      persistedStatus: existingJob.status,
+      outcome: 'blocked',
+    });
+
+    return {
+      outcome: 'blocked',
+      job: toJobMetadata(existingJob),
+    };
   }
 
   async updateJobStatus(
@@ -264,10 +318,11 @@ function createStatusGuard(status: JobStatus): {
       };
     case 'COMPLETED':
     case 'FAILED':
+    case 'EXPIRED':
       return {
         clause: '(status NOT IN (:...terminalStatuses) OR status = :targetStatus)',
         parameters: {
-          terminalStatuses: ['COMPLETED', 'FAILED'],
+          terminalStatuses: ['COMPLETED', 'FAILED', 'EXPIRED'],
           targetStatus: [status] as unknown as string[],
         },
       };

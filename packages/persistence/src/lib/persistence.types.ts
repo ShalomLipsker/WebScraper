@@ -53,6 +53,7 @@ export interface OutboxQueueMessage<TPayload = unknown> {
 export interface IOutboxMessageStore {
   enqueue<TPayload>(input: EnqueueOutboxMessageInput<TPayload>): Promise<PersistedOutboxMessage<TPayload>>;
   claimBatch(options?: ClaimOutboxMessagesOptions): Promise<Array<ClaimedOutboxMessage>>;
+  deletePublishedBefore(cutoff: Date): Promise<number>;
   markPublished(outboxId: string): Promise<void>;
   markJobEnqueuedAndPublished(jobId: string, outboxId: string): Promise<void>;
   markFailed(outboxId: string, errorMessage: string): Promise<void>;

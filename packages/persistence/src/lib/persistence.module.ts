@@ -14,15 +14,13 @@ import {
   JOB_SUBMISSION_STORE_TOKEN,
   OUTBOX_MESSAGE_STORE_TOKEN,
   POSTGRES_PERSISTENCE_OPTIONS_TOKEN,
-  RECOVERY_LEASE_STORE_TOKEN,
 } from './persistence.constants.js';
 import {
   JobEntity,
-  JobMaintenanceLeaseEntity,
   OutboxMessageEntity,
 } from './persistence.entities.js';
+import { PostgresAdvisoryLockRunner } from './postgres-advisory-lock.js';
 import { PostgresJobRepository } from './postgres-job-repository.js';
-import { PostgresRecoveryLeaseStore } from './postgres-recovery-lease-store.js';
 import { PostgresJobSubmissionStore } from './postgres-job-submission-store.js';
 import { PostgresOutboxService } from './postgres-outbox.service.js';
 import type { PostgresPersistenceModuleOptions } from './persistence.types.js';
@@ -57,29 +55,21 @@ export class PersistenceModule {
               logging: resolvedOptions.logging ?? false,
               synchronize: resolvedOptions.synchronize ?? false,
               autoLoadEntities: false,
-              entities: [JobEntity, OutboxMessageEntity, JobMaintenanceLeaseEntity],
+              entities: [JobEntity, OutboxMessageEntity],
             };
           },
         }),
-        TypeOrmModule.forFeature([
-          JobEntity,
-          OutboxMessageEntity,
-          JobMaintenanceLeaseEntity,
-        ]),
+        TypeOrmModule.forFeature([JobEntity, OutboxMessageEntity]),
       ],
       providers: [
         optionsProvider,
+        PostgresAdvisoryLockRunner,
         PostgresJobRepository,
-        PostgresRecoveryLeaseStore,
         PostgresJobSubmissionStore,
         PostgresOutboxService,
         {
           provide: JOB_REPOSITORY_TOKEN,
           useExisting: PostgresJobRepository,
-        },
-        {
-          provide: RECOVERY_LEASE_STORE_TOKEN,
-          useExisting: PostgresRecoveryLeaseStore,
         },
         {
           provide: JOB_SUBMISSION_STORE_TOKEN,
@@ -92,11 +82,10 @@ export class PersistenceModule {
       ],
       exports: [
         JOB_REPOSITORY_TOKEN,
-        RECOVERY_LEASE_STORE_TOKEN,
         JOB_SUBMISSION_STORE_TOKEN,
         OUTBOX_MESSAGE_STORE_TOKEN,
+        PostgresAdvisoryLockRunner,
         PostgresJobRepository,
-        PostgresRecoveryLeaseStore,
         PostgresJobSubmissionStore,
         PostgresOutboxService,
       ],

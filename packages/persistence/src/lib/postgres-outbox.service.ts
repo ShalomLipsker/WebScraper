@@ -145,6 +145,28 @@ ${maxAttemptsFilter}
     }));
   }
 
+  async deletePublishedBefore(cutoff: Date): Promise<number> {
+    const result = await this.outboxRepository
+      .createQueryBuilder()
+      .delete()
+      .from(OutboxMessageEntity)
+      .where('published_at IS NOT NULL')
+      .andWhere('published_at < :cutoff', { cutoff })
+      .execute();
+
+    const deletedCount = result.affected ?? 0;
+
+    if (deletedCount > 0) {
+      this.logger?.log({
+        event: 'deleted expired outbox messages',
+        deletedCount,
+        cutoff: cutoff.toISOString(),
+      });
+    }
+
+    return deletedCount;
+  }
+
   async markPublished(outboxId: string): Promise<void> {
     await this.outboxRepository
       .createQueryBuilder()

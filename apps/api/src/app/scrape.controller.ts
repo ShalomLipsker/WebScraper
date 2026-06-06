@@ -2,6 +2,7 @@ import {
   Body,
   ConflictException,
   Controller,
+  GoneException,
   Get,
   HttpCode,
   HttpStatus,
@@ -167,6 +168,12 @@ export class ScrapeController {
     traceContext?: import('@org/domain').TraceContextCarrier,
   ): Promise<ScrapeJobStatusView> {
     const job = await this.getExistingJobStatus(jobId, correlationId, traceContext);
+
+    if (job.status === 'EXPIRED') {
+      throw new GoneException(
+        `Job ${jobId} has expired and its HTML is no longer available`,
+      );
+    }
 
     if (job.status !== 'COMPLETED') {
       throw new ConflictException(

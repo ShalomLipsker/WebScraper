@@ -78,18 +78,3 @@ export class OutboxMessageEntity {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   declare updatedAt: Date;
 }
-
-@Entity({ name: 'job_maintenance_leases' })
-export class JobMaintenanceLeaseEntity {
-  @PrimaryColumn({ name: 'id', type: 'varchar', length: 128 })
-  declare id: string;
-
-  @Column({ name: 'owner_id', type: 'varchar', length: 128 })
-  declare ownerId: string;
-
-  @Column({ name: 'leased_until', type: 'timestamptz' })
-  declare leasedUntil: Date;
-
-  @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
-  declare updatedAt: Date;
-}

@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { type ConfigType } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
 import {
   MessagingModule,
   RabbitMqMessageQueue,
@@ -18,6 +17,7 @@ import {
   jobManagerStorageConfig,
 } from './app.config';
 import { ExpiredJobsCleanupService } from './expired-jobs-cleanup.service';
+import { OutboxCleanupService } from './outbox-cleanup.service';
 import { POLLING_WORKER_OPTIONS, PollingWorker } from './polling-worker';
 import { ScrapeJobsController } from './scrape-jobs.controller';
 import { SCRAPE_STATUS_QUEUE_TOKEN } from './scrape.constants';
@@ -28,7 +28,6 @@ import { ScrapeJobsService } from './scrape-jobs.service';
 @Module({
   imports: [
     jobManagerConfigModule,
-    ScheduleModule.forRoot(),
     PersistenceModule.registerAsync({
       imports: [jobManagerConfigModule],
       inject: [jobManagerPersistenceConfig.KEY],
@@ -124,6 +123,7 @@ import { ScrapeJobsService } from './scrape-jobs.service';
       inject: [jobManagerOutboxConfig.KEY],
     },
     PollingWorker,
+    OutboxCleanupService,
     ScrapeJobsService,
     ScrapeJobSubmissionOutboxService,
     ScrapeJobStatusUpdatesService,

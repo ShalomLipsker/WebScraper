@@ -4,6 +4,7 @@ export const JOB_STATUSES = [
   'PROCESSING',
   'COMPLETED',
   'FAILED',
+  'EXPIRED',
 ] as const;
 
 export type JobStatus = (typeof JOB_STATUSES)[number];
@@ -37,6 +38,7 @@ export interface IJobRepository {
   createJob(job: CreateJobInput): Promise<JobMetadata>;
   createJobIfNotExists(job: CreateJobInput): Promise<{ job: JobMetadata; alreadyExisted: boolean }>;
   deleteJob(id: JobId): Promise<boolean>;
+  markJobExpired(id: JobId): Promise<UpdateJobStatusResult>;
   updateJobStatus(
     id: JobId,
     status: JobStatus,
