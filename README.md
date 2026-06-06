@@ -137,7 +137,7 @@ Grafana observability endpoints after Compose starts:
 - Tempo API: `http://localhost:3200`
 - Loki API: `http://localhost:3100`
 
-Grafana is pre-provisioned with both Tempo and Loki datasources. Grafana Alloy discovers the Docker containers in the Compose stack, extracts structured fields from the JSON app logs, and ships them to Loki.
+Grafana is pre-provisioned with both Tempo and Loki datasources, plus a `WebScraper Observability` dashboard for log-derived service activity, job outcomes, recent errors, and application drill-downs. Grafana Alloy discovers the Docker containers in the Compose stack, extracts structured fields from the JSON app logs, and ships them to Loki.
 
 Default local MinIO credentials:
 
