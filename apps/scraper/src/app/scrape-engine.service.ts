@@ -11,13 +11,19 @@ import {
 import { scraperFetchConfig } from './app.config';
 
 const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+const HOST_STATE_TTL_MS = 30 * 60 * 1000;
+
+interface HostState {
+  nextRequestAt: number;
+  userAgentIndex: number;
+  lastSeenAt: number;
+}
 
 @Injectable()
 export class ScrapeEngineService {
   private activeRequests = 0;
-  private readonly nextRequestAtByHost = new Map<string, number>();
+  private readonly hostStateByKey = new Map<string, HostState>();
   private readonly waitQueue: Array<() => void> = [];
-  private readonly userAgentIndexByHost = new Map<string, number>();
 
   constructor(
     @Inject(scraperFetchConfig.KEY)
@@ -37,9 +43,10 @@ export class ScrapeEngineService {
     let lastError: unknown;
     const { fetchConfig } = this;
     const hostKey = this.getHostKey(url);
+    const hostState = this.getHostState(hostKey);
     const proxyConfig = proxy ? this.createProxyConfig(proxy) : undefined;
     const proxyLabel = this.getProxyLabel(proxy);
-    let userAgent = this.getUserAgentForHost(hostKey);
+    let userAgent = this.getUserAgentForHost(hostState);
 
     for (let attempt = 1; attempt <= fetchConfig.maxRetryAttempts; attempt += 1) {
       const releaseSlot = await this.acquireRequestSlot(hostKey);
@@ -147,13 +154,11 @@ export class ScrapeEngineService {
 
     this.activeRequests += 1;
 
-    const nextRequestAt = this.nextRequestAtByHost.get(hostKey) ?? 0;
+    const hostState = this.getHostState(hostKey);
+    const nextRequestAt = hostState.nextRequestAt;
     const waitMs = Math.max(0, nextRequestAt - Date.now());
-    this.nextRequestAtByHost.set(
-      hostKey,
-      Math.max(nextRequestAt, Date.now())
-      + this.fetchConfig.minRequestIntervalMs,
-    );
+    hostState.nextRequestAt =
+      Math.max(nextRequestAt, Date.now()) + this.fetchConfig.minRequestIntervalMs;
 
     if (waitMs > 0) {
       await this.delay(waitMs);
@@ -179,19 +184,53 @@ export class ScrapeEngineService {
     return parsedUrl.host;
   }
 
-  private getUserAgentForHost(hostKey: string): string {
-    const { userAgents } = this.fetchConfig;
-    const userAgentIndex = this.userAgentIndexByHost.get(hostKey) ?? 0;
+  private getHostState(hostKey: string): HostState {
+    const now = Date.now();
 
-    return userAgents[userAgentIndex % userAgents.length];
+    this.evictExpiredHostState(now);
+
+    const existingHostState = this.hostStateByKey.get(hostKey);
+
+    if (existingHostState) {
+      existingHostState.lastSeenAt = now;
+
+      return existingHostState;
+    }
+
+    const hostState: HostState = {
+      nextRequestAt: 0,
+      userAgentIndex: 0,
+      lastSeenAt: now,
+    };
+
+    this.hostStateByKey.set(hostKey, hostState);
+
+    return hostState;
+  }
+
+  private evictExpiredHostState(now: number): void {
+    for (const [hostKey, hostState] of this.hostStateByKey) {
+      const isExpired = now - hostState.lastSeenAt > HOST_STATE_TTL_MS;
+      const hasPendingPacing = hostState.nextRequestAt > now;
+
+      if (isExpired && !hasPendingPacing) {
+        this.hostStateByKey.delete(hostKey);
+      }
+    }
+  }
+
+  private getUserAgentForHost(hostState: HostState): string {
+    const { userAgents } = this.fetchConfig;
+
+    return userAgents[hostState.userAgentIndex % userAgents.length];
   }
 
   private rotateUserAgent(hostKey: string): string {
-    const nextUserAgentIndex = (this.userAgentIndexByHost.get(hostKey) ?? 0) + 1;
+    const hostState = this.getHostState(hostKey);
 
-    this.userAgentIndexByHost.set(hostKey, nextUserAgentIndex);
+    hostState.userAgentIndex += 1;
 
-    return this.getUserAgentForHost(hostKey);
+    return this.getUserAgentForHost(hostState);
   }
 
   private shouldRotateUserAgent(statusCode: number | null): boolean {

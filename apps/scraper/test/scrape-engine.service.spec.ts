@@ -184,6 +184,37 @@ describe('ScrapeEngineService', () => {
     );
   });
 
+  it('evicts stale host state so inactive hosts reset their user agent sequence', async () => {
+    vi.useFakeTimers();
+    const service = createService();
+
+    axiosGetMock
+      .mockRejectedValueOnce(createAxiosError(429, 'Too Many Requests'))
+      .mockResolvedValueOnce({
+        status: 200,
+        data: '<html>rotated</html>',
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        data: '<html>after-ttl</html>',
+      });
+
+    const rotatedRequest = service.fetchHtml('https://example.com/429');
+
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(rotatedRequest).resolves.toBe('<html>rotated</html>');
+
+    await vi.advanceTimersByTimeAsync(30 * 60 * 1000 + 1);
+
+    await expect(
+      service.fetchHtml('https://example.com/after-ttl'),
+    ).resolves.toBe('<html>after-ttl</html>');
+
+    expect(axiosGetMock.mock.calls[0]?.[1]?.headers?.['user-agent']).toBe('agent-1');
+    expect(axiosGetMock.mock.calls[1]?.[1]?.headers?.['user-agent']).toBe('agent-2');
+    expect(axiosGetMock.mock.calls[2]?.[1]?.headers?.['user-agent']).toBe('agent-1');
+  });
+
   it('paces requests independently per host while keeping global concurrency shared', async () => {
     vi.useFakeTimers();
     const service = createService({
