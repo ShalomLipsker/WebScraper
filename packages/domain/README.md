@@ -10,3 +10,10 @@ without pulling in infrastructure concerns.
 ## Build
 
 Run `pnpm nx build domain` to build the library.
+
+## Tests
+
+This package currently has focused unit tests for the scrape URL and proxy
+validators in `test/scrape-job.types.spec.ts`.
+
+Run the package tests with `pnpm --filter @org/domain test`.
