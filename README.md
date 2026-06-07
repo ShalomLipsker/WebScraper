@@ -11,6 +11,8 @@ WebScraper is an Nx monorepo for an asynchronous HTML scraping pipeline built wi
 
 ## Architecture
 
+For the editable system diagram, see [WebScraper.drawio](./WebScraper.drawio).
+
 ```text
 Client
 	-> api (HTTP)
@@ -175,6 +177,30 @@ pnpm nx typecheck job-manager
 pnpm nx typecheck scraper
 ```
 
+### Run tests
+
+Library packages expose a `test` script and can be run through the workspace filter:
+
+```bash
+pnpm --filter @org/persistence test
+pnpm --filter @org/domain test
+pnpm --filter @org/messaging test
+```
+
+Application tests live under each app's `test/` directory and can be run with Vitest from that app folder:
+
+```bash
+pnpm --dir apps/api exec vitest run
+pnpm --dir apps/job-manager exec vitest run
+pnpm --dir apps/scraper exec vitest run
+```
+
+If you are running integration specs, start the local dependencies first:
+
+```bash
+docker compose up postgres rabbitmq minio minio-init
+```
+
 ## Simulate a scrape request
 
 The repository includes a small client script that submits a job, polls until completion, and optionally opens the HTML result in a browser.
@@ -226,6 +252,7 @@ packages/
 	messaging/
 	persistence/
 	storage/
+	tracing/
 ```
 
 ## Structured logging
