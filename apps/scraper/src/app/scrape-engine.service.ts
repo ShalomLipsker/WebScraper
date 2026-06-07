@@ -15,9 +15,9 @@ const RETRYABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
 @Injectable()
 export class ScrapeEngineService {
   private activeRequests = 0;
-  private nextRequestAt = 0;
+  private readonly nextRequestAtByHost = new Map<string, number>();
   private readonly waitQueue: Array<() => void> = [];
-  private userAgentIndex = 0;
+  private readonly userAgentIndexByHost = new Map<string, number>();
 
   constructor(
     @Inject(scraperFetchConfig.KEY)
@@ -36,12 +36,13 @@ export class ScrapeEngineService {
   ): Promise<string> {
     let lastError: unknown;
     const { fetchConfig } = this;
+    const hostKey = this.getHostKey(url);
     const proxyConfig = proxy ? this.createProxyConfig(proxy) : undefined;
     const proxyLabel = this.getProxyLabel(proxy);
+    let userAgent = this.getUserAgentForHost(hostKey);
 
     for (let attempt = 1; attempt <= fetchConfig.maxRetryAttempts; attempt += 1) {
-      const userAgent = this.nextUserAgent();
-      const releaseSlot = await this.acquireRequestSlot();
+      const releaseSlot = await this.acquireRequestSlot(hostKey);
       const requestStartedAt = Date.now();
       const loggerContext = {
         correlationId: context.correlationId,
@@ -102,6 +103,10 @@ export class ScrapeEngineService {
           attempt < fetchConfig.maxRetryAttempts && this.shouldRetry(error);
 
         if (shouldRetry) {
+          if (this.shouldRotateUserAgent(statusCode)) {
+            userAgent = this.rotateUserAgent(hostKey);
+          }
+
           const retryDelayMs = this.getRetryDelayMs(attempt, statusCode);
 
           this.logger.warn({
@@ -110,6 +115,7 @@ export class ScrapeEngineService {
             statusCode,
             retryDelayMs,
             errorMessage,
+            userAgent,
           });
 
           await this.delay(retryDelayMs);
@@ -132,7 +138,7 @@ export class ScrapeEngineService {
     );
   }
 
-  private async acquireRequestSlot(): Promise<() => void> {
+  private async acquireRequestSlot(hostKey: string): Promise<() => void> {
     while (this.activeRequests >= this.fetchConfig.maxConcurrentRequests) {
       await new Promise<void>((resolve) => {
         this.waitQueue.push(resolve);
@@ -141,10 +147,13 @@ export class ScrapeEngineService {
 
     this.activeRequests += 1;
 
-    const waitMs = Math.max(0, this.nextRequestAt - Date.now());
-    this.nextRequestAt =
-      Math.max(this.nextRequestAt, Date.now())
-      + this.fetchConfig.minRequestIntervalMs;
+    const nextRequestAt = this.nextRequestAtByHost.get(hostKey) ?? 0;
+    const waitMs = Math.max(0, nextRequestAt - Date.now());
+    this.nextRequestAtByHost.set(
+      hostKey,
+      Math.max(nextRequestAt, Date.now())
+      + this.fetchConfig.minRequestIntervalMs,
+    );
 
     if (waitMs > 0) {
       await this.delay(waitMs);
@@ -164,13 +173,29 @@ export class ScrapeEngineService {
     };
   }
 
-  private nextUserAgent(): string {
+  private getHostKey(url: string): string {
+    const parsedUrl = new URL(url);
+
+    return parsedUrl.host;
+  }
+
+  private getUserAgentForHost(hostKey: string): string {
     const { userAgents } = this.fetchConfig;
-    const userAgent = userAgents[this.userAgentIndex % userAgents.length];
+    const userAgentIndex = this.userAgentIndexByHost.get(hostKey) ?? 0;
 
-    this.userAgentIndex += 1;
+    return userAgents[userAgentIndex % userAgents.length];
+  }
 
-    return userAgent;
+  private rotateUserAgent(hostKey: string): string {
+    const nextUserAgentIndex = (this.userAgentIndexByHost.get(hostKey) ?? 0) + 1;
+
+    this.userAgentIndexByHost.set(hostKey, nextUserAgentIndex);
+
+    return this.getUserAgentForHost(hostKey);
+  }
+
+  private shouldRotateUserAgent(statusCode: number | null): boolean {
+    return statusCode === 429;
   }
 
   private createProxyConfig(proxy: string): AxiosProxyConfig {

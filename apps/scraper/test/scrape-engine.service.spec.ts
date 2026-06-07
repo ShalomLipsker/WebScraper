@@ -39,6 +39,7 @@ describe('ScrapeEngineService', () => {
   };
 
   beforeEach(() => {
+    vi.useRealTimers();
     logger = {
       log: vi.fn(),
       warn: vi.fn(),
@@ -115,7 +116,7 @@ describe('ScrapeEngineService', () => {
     );
   });
 
-  it('retries retryable failures and rotates the user agent on the next attempt', async () => {
+  it('retries transport failures with the same user agent', async () => {
     const service = createService();
     axiosGetMock
       .mockRejectedValueOnce(createAxiosError(503, 'Service Unavailable'))
@@ -130,14 +131,105 @@ describe('ScrapeEngineService', () => {
 
     expect(axiosGetMock).toHaveBeenCalledTimes(2);
     expect(axiosGetMock.mock.calls[0]?.[1]?.headers?.['user-agent']).toBe('agent-1');
-    expect(axiosGetMock.mock.calls[1]?.[1]?.headers?.['user-agent']).toBe('agent-2');
+    expect(axiosGetMock.mock.calls[1]?.[1]?.headers?.['user-agent']).toBe('agent-1');
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'retrying scrape request',
         statusCode: 503,
         retryDelayMs: 0,
+        userAgent: 'agent-1',
       }),
     );
+  });
+
+  it('rotates the user agent on 429 retries without affecting other hosts', async () => {
+    const service = createService();
+    axiosGetMock
+      .mockRejectedValueOnce(createAxiosError(429, 'Too Many Requests'))
+      .mockResolvedValueOnce({
+        status: 200,
+        data: '<html>rotated</html>',
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        data: '<html>other-host</html>',
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        data: '<html>same-host-next-request</html>',
+      });
+
+    await expect(
+      service.fetchHtml('https://example.com/429'),
+    ).resolves.toBe('<html>rotated</html>');
+
+    await expect(
+      service.fetchHtml('https://other.example.com/page'),
+    ).resolves.toBe('<html>other-host</html>');
+
+    await expect(
+      service.fetchHtml('https://example.com/after-rotation'),
+    ).resolves.toBe('<html>same-host-next-request</html>');
+
+    expect(axiosGetMock.mock.calls[0]?.[1]?.headers?.['user-agent']).toBe('agent-1');
+    expect(axiosGetMock.mock.calls[1]?.[1]?.headers?.['user-agent']).toBe('agent-2');
+    expect(axiosGetMock.mock.calls[2]?.[1]?.headers?.['user-agent']).toBe('agent-1');
+    expect(axiosGetMock.mock.calls[3]?.[1]?.headers?.['user-agent']).toBe('agent-2');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: 'retrying scrape request',
+        statusCode: 429,
+        userAgent: 'agent-2',
+      }),
+    );
+  });
+
+  it('paces requests independently per host while keeping global concurrency shared', async () => {
+    vi.useFakeTimers();
+    const service = createService({
+      maxConcurrentRequests: 2,
+      minRequestIntervalMs: 1_000,
+    });
+
+    let firstRequestReleased = false;
+
+    axiosGetMock.mockImplementation(async (url: string) => {
+      if (url === 'https://example.com/first') {
+        await new Promise<void>((resolve) => {
+          setTimeout(() => {
+            firstRequestReleased = true;
+            resolve();
+          }, 50);
+        });
+      }
+
+      return {
+        status: 200,
+        data: `<html>${url}</html>`,
+      };
+    });
+
+    const firstRequest = service.fetchHtml('https://example.com/first');
+    await vi.advanceTimersByTimeAsync(0);
+
+    const secondHostRequest = service.fetchHtml('https://another.example.com/second');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(axiosGetMock).toHaveBeenCalledTimes(2);
+    expect(firstRequestReleased).toBe(false);
+
+    const sameHostRequest = service.fetchHtml('https://example.com/third');
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(axiosGetMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(firstRequest).resolves.toContain('example.com/first');
+    await expect(secondHostRequest).resolves.toContain('another.example.com/second');
+
+    await vi.advanceTimersByTimeAsync(950);
+    expect(axiosGetMock).toHaveBeenCalledTimes(3);
+    await expect(sameHostRequest).resolves.toContain('example.com/third');
   });
 
   it('throws a wrapped final error after retry exhaustion', async () => {
