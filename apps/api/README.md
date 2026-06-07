@@ -23,6 +23,17 @@ Default local port: `3000`
 - API-side RPC deadline via `JOB_MANAGER_RPC_TIMEOUT_MS` (default `5000`)
 - S3-compatible storage for completed result retrieval
 
+## Tests
+
+This app currently has focused controller, gateway service, and HTTP integration
+tests under `test/`.
+
+Run them with:
+
+```bash
+pnpm exec vitest run apps/api/test/*.spec.ts
+```
+
 ## Related files
 
 - `src/app/scrape.controller.ts`
