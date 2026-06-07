@@ -5,8 +5,8 @@ async function bootstrap() {
     import('@nestjs/common'),
     import('@nestjs/core'),
     import('@org/logger'),
-    import('./app/app.config'),
-    import('./app/app.module'),
+    import('./app/app.config.js'),
+    import('./app/app.module.js'),
   ]);
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const serviceConfig = app.get(apiServiceConfig.KEY);

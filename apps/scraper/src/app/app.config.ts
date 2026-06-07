@@ -1,5 +1,11 @@
 import { type DynamicModule } from '@nestjs/common';
-import { ConfigModule, registerAs } from '@nestjs/config';
+import {
+  ConfigModule,
+  type ConfigFactory,
+  type ConfigFactoryKeyHost,
+  type ConfigObject,
+  registerAs,
+} from '@nestjs/config';
 import {
   parseOptionalBooleanEnv,
   readBooleanEnv,
@@ -17,6 +23,7 @@ const DEFAULT_SCRAPER_USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:139.0) Gecko/20100101 Firefox/139.0',
 ];
 type ScraperNodeEnv = 'development' | 'production' | 'test';
+type RegisteredConfigFactory<T extends ConfigObject> = ConfigFactory<T> & ConfigFactoryKeyHost<T>;
 
 export interface ScraperHttpConfig {
   port: number;
@@ -250,27 +257,27 @@ function readRabbitMqConfig(): ScraperRabbitMqConfig {
   };
 }
 
-export const scraperServiceConfig = registerAs(
+export const scraperServiceConfig: RegisteredConfigFactory<ScraperServiceConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.service`,
   (): ScraperServiceConfig => readServiceConfig(),
 );
 
-export const scraperStorageConfig = registerAs(
+export const scraperStorageConfig: RegisteredConfigFactory<ScraperStorageConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.storage`,
   (): ScraperStorageConfig => readStorageConfig(),
 );
 
-export const scraperMessagingConfig = registerAs(
+export const scraperMessagingConfig: RegisteredConfigFactory<ScrapeMessagingConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.messaging`,
   (): ScrapeMessagingConfig => readMessagingConfig(),
 );
 
-export const scraperFetchConfig = registerAs(
+export const scraperFetchConfig: RegisteredConfigFactory<ScraperFetchConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.fetch`,
   (): ScraperFetchConfig => readFetchConfig(),
 );
 
-export const scraperRabbitMqConfig = registerAs(
+export const scraperRabbitMqConfig: RegisteredConfigFactory<ScraperRabbitMqConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.rabbitMq`,
   (): ScraperRabbitMqConfig => readRabbitMqConfig(),
 );

@@ -1,5 +1,11 @@
 import { type DynamicModule } from '@nestjs/common';
-import { ConfigModule, registerAs } from '@nestjs/config';
+import {
+  ConfigModule,
+  type ConfigFactory,
+  type ConfigFactoryKeyHost,
+  type ConfigObject,
+  registerAs,
+} from '@nestjs/config';
 import {
   parseOptionalBooleanEnv,
   readBooleanEnv,
@@ -12,6 +18,7 @@ import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync 
 
 const APP_CONFIG_NAMESPACE = 'app';
 type JobManagerNodeEnv = 'development' | 'production' | 'test';
+type RegisteredConfigFactory<T extends ConfigObject> = ConfigFactory<T> & ConfigFactoryKeyHost<T>;
 
 export interface JobManagerHttpConfig {
   port: number;
@@ -372,42 +379,42 @@ function readCleanupConfig(): JobManagerCleanupConfig {
   };
 }
 
-export const jobManagerServiceConfig = registerAs(
+export const jobManagerServiceConfig: RegisteredConfigFactory<JobManagerServiceConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.service`,
   (): JobManagerServiceConfig => readServiceConfig(),
 );
 
-export const jobManagerTransportConfig = registerAs(
+export const jobManagerTransportConfig: RegisteredConfigFactory<JobManagerTransportConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.transport`,
   (): JobManagerTransportConfig => readTransportConfig(),
 );
 
-export const jobManagerMessagingConfig = registerAs(
+export const jobManagerMessagingConfig: RegisteredConfigFactory<ScrapeMessagingConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.messaging`,
   (): ScrapeMessagingConfig => readMessagingConfig(),
 );
 
-export const jobManagerPersistenceConfig = registerAs(
+export const jobManagerPersistenceConfig: RegisteredConfigFactory<JobManagerPersistenceConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.persistence`,
   (): JobManagerPersistenceConfig => readPersistenceConfig(),
 );
 
-export const jobManagerStorageConfig = registerAs(
+export const jobManagerStorageConfig: RegisteredConfigFactory<JobManagerStorageConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.storage`,
   (): JobManagerStorageConfig => readStorageConfig(),
 );
 
-export const jobManagerRabbitMqConfig = registerAs(
+export const jobManagerRabbitMqConfig: RegisteredConfigFactory<JobManagerRabbitMqConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.rabbitMq`,
   (): JobManagerRabbitMqConfig => readRabbitMqConfig(),
 );
 
-export const jobManagerOutboxConfig = registerAs(
+export const jobManagerOutboxConfig: RegisteredConfigFactory<JobManagerOutboxConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.outbox`,
   (): JobManagerOutboxConfig => readOutboxConfig(),
 );
 
-export const jobManagerCleanupConfig = registerAs(
+export const jobManagerCleanupConfig: RegisteredConfigFactory<JobManagerCleanupConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.cleanup`,
   (): JobManagerCleanupConfig => readCleanupConfig(),
 );

@@ -1,5 +1,11 @@
 import { type DynamicModule } from '@nestjs/common';
-import { ConfigModule, registerAs } from '@nestjs/config';
+import {
+  ConfigModule,
+  type ConfigFactory,
+  type ConfigFactoryKeyHost,
+  type ConfigObject,
+  registerAs,
+} from '@nestjs/config';
 import {
   readBooleanEnv,
   readScrapeMessagingConfig,
@@ -11,6 +17,7 @@ import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, validateSync 
 
 const APP_CONFIG_NAMESPACE = 'app';
 type ApiNodeEnv = 'development' | 'production' | 'test';
+type RegisteredConfigFactory<T extends ConfigObject> = ConfigFactory<T> & ConfigFactoryKeyHost<T>;
 
 export interface ApiHttpConfig {
   port: number;
@@ -198,22 +205,22 @@ function readStorageConfig(): ApiStorageConfig {
   };
 }
 
-export const apiServiceConfig = registerAs(
+export const apiServiceConfig: RegisteredConfigFactory<ApiServiceConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.service`,
   (): ApiServiceConfig => readServiceConfig(),
 );
 
-export const apiJobManagerConfig = registerAs(
+export const apiJobManagerConfig: RegisteredConfigFactory<ApiJobManagerConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.jobManager`,
   (): ApiJobManagerConfig => readJobManagerConfig(),
 );
 
-export const apiMessagingConfig = registerAs(
+export const apiMessagingConfig: RegisteredConfigFactory<ScrapeMessagingConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.messaging`,
   (): ScrapeMessagingConfig => readMessagingConfig(),
 );
 
-export const apiStorageConfig = registerAs(
+export const apiStorageConfig: RegisteredConfigFactory<ApiStorageConfig> = registerAs(
   `${APP_CONFIG_NAMESPACE}.storage`,
   (): ApiStorageConfig => readStorageConfig(),
 );

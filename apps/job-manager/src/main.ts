@@ -5,8 +5,8 @@ async function bootstrap() {
     import('@nestjs/core'),
     import('@nestjs/microservices'),
     import('@org/logger'),
-    import('./app/app.config'),
-    import('./app/app.module'),
+    import('./app/app.config.js'),
+    import('./app/app.module.js'),
   ]);
   const loggerApp = await NestFactory.create(AppModule, { bufferLogs: true });
   const serviceConfig = loggerApp.get(jobManagerServiceConfig.KEY);
