@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: job-manager
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: job-manager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: job-manager
+    spec:
+      containers:
+        - name: job-manager
+          image: webscraper-job-manager:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+              name: http
+            - containerPort: 4001
+              name: tcp
+          envFrom:
+            - configMapRef:
+                name: webscraper-config
+            - secretRef:
+                name: webscraper-secrets
+          env:
+            - name: PORT
+              value: "3001"
+            - name: JOB_MANAGER_HOST
+              value: 0.0.0.0
+            - name: JOB_MANAGER_TCP_PORT
+              value: "4001"
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: job-manager
+spec:
+  selector:
+    app.kubernetes.io/name: job-manager
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
+    - name: tcp
+      port: 4001
+      targetPort: tcp
