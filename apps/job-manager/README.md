@@ -29,6 +29,16 @@ Default local ports:
 - RabbitMQ for work and status transport
 - Internal callers such as `api` using Nest TCP messaging
 
+## Tests
+
+This app currently has focused service and integration tests under `test/`.
+
+Run them with:
+
+```bash
+pnpm exec vitest run apps/job-manager/test/*.spec.ts
+```
+
 ## Related files
 
 - `src/app/scrape-jobs.controller.ts`
