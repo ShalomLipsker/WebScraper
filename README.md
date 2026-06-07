@@ -57,18 +57,21 @@ POST /scrape
 Content-Type: application/json
 
 {
-	"url": "https://example.com"
+	"url": "https://example.com",
+	"proxy": "http://proxy.example:8080"
 }
 ```
 
-The request body must contain a valid `http` or `https` URL.
+The request body must contain a valid `http` or `https` URL. You can also provide an optional proxy URL with the `proxy` field when the scrape should be executed through an `http` or `https` proxy.
+
+If you do not want to use a proxy, omit the `proxy` field.
 
 Example response:
 
 ```json
 {
 	"accepted": true,
-	"jobId": "<sha256-of-url>",
+	"jobId": "<sha256-of-url-and-proxy>",
 	"url": "https://example.com",
 	"status": "ENQUEUED"
 }
@@ -245,6 +248,7 @@ The monorepo uses the shared Pino/Nest logger in `@org/logger`. Keep logs event-
 ### Known issues
 
 - Job status updates can be lost permanently if the job-manager crashes after consuming the status update message more than max retry attempts. 
+- Aggressive polling for task statuses can degrade Postgres performance, particularly with a high volume of concurrent jobs. To mitigate this issue, we can implement caching for recently updated job records in the job-manager service. This would reduce the number of direct database queries for status checks and improve overall performance under load.
 
 ## App readmes
 
