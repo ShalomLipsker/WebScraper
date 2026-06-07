@@ -9,6 +9,7 @@ import {
   DEFAULT_JOB_RETENTION_SECONDS,
   POSTGRES_PERSISTENCE_OPTIONS_TOKEN,
 } from './persistence.constants.js';
+import { toJobMetadata } from './job-metadata.mapper.js';
 import { JobEntity, OutboxMessageEntity } from './persistence.entities.js';
 import type {
   CreateJobSubmissionInput,
@@ -109,18 +110,6 @@ function createExpirationDate(
     options.jobRetentionSeconds ?? DEFAULT_JOB_RETENTION_SECONDS;
 
   return new Date(Date.now() + retentionSeconds * 1000);
-}
-
-function toJobMetadata(job: JobEntity): JobMetadata {
-  return {
-    id: job.id,
-    url: job.url,
-    status: job.status,
-    resultPath: job.resultPath ?? undefined,
-    errorMessage: job.errorMessage ?? undefined,
-    createdAt: new Date(job.createdAt),
-    updatedAt: new Date(job.updatedAt),
-  };
 }
 
 function getCorrelationIdFromPayload(payload: unknown): string | undefined {

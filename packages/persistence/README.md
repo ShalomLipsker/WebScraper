@@ -53,6 +53,17 @@ with `PersistenceModule.register({ url, synchronize, jobRetentionSeconds })`.
 
 Run `pnpm nx build persistence` to build the library.
 
+## Tests
+
+This package currently has focused PostgreSQL integration tests for the
+repository, submission store, outbox service, and advisory lock runner under
+`test/*.integration.spec.ts`.
+
+Run the package tests with `pnpm --filter @org/persistence test`.
+The integration suite expects PostgreSQL to be available at
+`postgresql://postgres:postgres@127.0.0.1:5432/webscraper` unless
+`POSTGRES_URL` is set.
+
 
 ### Notes
 

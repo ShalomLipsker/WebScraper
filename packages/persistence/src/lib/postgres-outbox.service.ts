@@ -68,6 +68,7 @@ export class PostgresOutboxService implements IOutboxMessageStore {
   async claimBatch(
     options: ClaimOutboxMessagesOptions = {},
   ): Promise<Array<ClaimedOutboxMessage>> {
+    const outboxTable = getTableReference(this.outboxRepository);
     const resolvedBatchSize =
       options.batchSize
       ?? this.options.outboxClaimBatchSize
@@ -94,7 +95,7 @@ export class PostgresOutboxService implements IOutboxMessageStore {
       `
         WITH candidate AS (
           SELECT id
-          FROM outbox_messages
+          FROM ${outboxTable}
           WHERE published_at IS NULL
             AND next_attempt_at <= NOW()
 ${maxAttemptsFilter}
@@ -102,7 +103,7 @@ ${maxAttemptsFilter}
           FOR UPDATE SKIP LOCKED
           LIMIT $1
         )
-        UPDATE outbox_messages AS outbox
+        UPDATE ${outboxTable} AS outbox
         SET next_attempt_at = $2,
             updated_at = NOW()
         FROM candidate
@@ -228,12 +229,13 @@ ${maxAttemptsFilter}
   }
 
   async markFailed(outboxId: string, errorMessage: string): Promise<void> {
+    const outboxTable = getTableReference(this.outboxRepository);
     const retryDelayMs =
       this.options.outboxRetryDelayMs ?? DEFAULT_OUTBOX_RETRY_DELAY_MS;
 
     await this.outboxRepository.query(
       `
-        UPDATE outbox_messages
+        UPDATE ${outboxTable}
         SET attempt_count = attempt_count + 1,
             last_error = $2,
             next_attempt_at = $3,
@@ -288,4 +290,15 @@ function createExpirationDate(
     Date.now()
     + (options.jobRetentionSeconds ?? DEFAULT_JOB_RETENTION_SECONDS) * 1000,
   );
+}
+
+function getTableReference(
+  repository: Repository<OutboxMessageEntity>,
+): string {
+  const schema = repository.metadata.schema;
+  const tableName = repository.metadata.tableName;
+
+  return schema
+    ? `"${schema}"."${tableName}"`
+    : `"${tableName}"`;
 }
