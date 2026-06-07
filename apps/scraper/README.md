@@ -22,6 +22,16 @@ Default local port: `3002`
 - RabbitMQ for job consumption and status publication
 - S3-compatible storage for result uploads
 
+## Tests
+
+This app currently has focused scrape engine and worker unit tests under `test/`.
+
+Run them with:
+
+```bash
+pnpm exec vitest run apps/scraper/test/*.spec.ts
+```
+
 ## Related files
 
 - `src/app/scrape-worker.service.ts`
